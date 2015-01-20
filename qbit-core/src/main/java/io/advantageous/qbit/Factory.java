@@ -16,6 +16,7 @@ import io.advantageous.qbit.service.Service;
 import io.advantageous.qbit.service.ServiceBundle;
 import io.advantageous.qbit.spi.ProtocolEncoder;
 import io.advantageous.qbit.spi.ProtocolParser;
+import io.advantageous.qbit.transforms.Transformer;
 import io.advantageous.qbit.util.MultiMap;
 
 import java.util.List;
@@ -36,12 +37,14 @@ public interface Factory {
      * @param params params, usually request parameters
      * @return new method call object returned.
      */
-    MethodCall<Object> createMethodCallToBeParsedFromBody(String address,
+    default MethodCall<Object> createMethodCallToBeParsedFromBody(String address,
                                                           String returnAddress,
                                                           String objectName,
                                                           String methodName,
                                                           Object args,
-                                                          MultiMap<String, String> params);
+                                                          MultiMap<String, String> params) {
+       throw new UnsupportedOperationException();
+    }
 
     /**
      * Create a method call based on a body that we are parsing from  a POST body or WebSocket message for example.
@@ -51,10 +54,12 @@ public interface Factory {
      * @param params params, usually request parameters
      * @return new method call object returned.
      */
-    MethodCall<Object> createMethodCallByAddress(String address,
+    default MethodCall<Object> createMethodCallByAddress(String address,
                                                  String returnAddress,
                                                  Object args,
-                                                 MultiMap<String, String> params);
+                                                 MultiMap<String, String> params) {
+        throw new UnsupportedOperationException();
+    }
 
     /**
      * Create a method call based on a body that we are parsing from  a POST body or WebSocket message for example.
@@ -65,27 +70,39 @@ public interface Factory {
      * @param params params, usually request parameters
      * @return new method call object returned.
      */
-
-    MethodCall<Object> createMethodCallByNames(
+    default MethodCall<Object> createMethodCallByNames(
             String methodName, String objectName, String returnAddress, Object args,
-            MultiMap<String, String> params);
+            MultiMap<String, String> params) {
+        throw new UnsupportedOperationException();
+    }
+
 
     /**
-     * Create a client bundle.
-     * @param path path to bundle (base URI really)
-     * @return new client bundle
+     * String address, final int batchSize, final int pollRate,
+     final Factory factory, final boolean asyncCalls,
+     final BeforeMethodCall beforeMethodCall,
+     final BeforeMethodCall beforeMethodCallAfterTransform,
+     final Transformer<Request, Object> argTransformer
      */
-    ServiceBundle createServiceBundle(String path);
-
 
     /**
-     * Create a client bundle.
-     * @param path path to bundle (base URI really)
+     * Create a service bundle.
+     * @param address service path to bundle (base URI really)
      *
-     * @param async service calls
+     * @param asyncCalls service calls
      * @return new client bundle
      */
-    ServiceBundle createServiceBundle(String path, boolean async);
+    default ServiceBundle createServiceBundle(String address, final int batchSize, final int pollRate,
+                                              final Factory factory, final boolean asyncCalls,
+                                              final BeforeMethodCall beforeMethodCall,
+                                              final BeforeMethodCall beforeMethodCallAfterTransform,
+                                              final Transformer<Request, Object> argTransformer){
+        throw new UnsupportedOperationException();
+    }
+
+    default ServiceBundle createServiceBundle(String path) {
+        throw new UnsupportedOperationException();
+    }
 
 
     /**
@@ -99,7 +116,12 @@ public interface Factory {
      *
      *
      */
-    Service createService(String rootAddress, String serviceAddress, Object object, Queue<Response<Object>> responseQueue, boolean asyncCalls);
+    default Service createService(String rootAddress, String serviceAddress,
+                                  Object object,
+                                  Queue<Response<Object>> responseQueue,
+                                  boolean asyncCalls){
+        throw new UnsupportedOperationException();
+    }
 
 
     /**
@@ -113,13 +135,19 @@ public interface Factory {
      *
      *
      */
-    Service createService(String rootAddress, String serviceAddress, Object object, Queue<Response<Object>> responseQueue);
+    default Service createService(String rootAddress, String serviceAddress,
+                                  Object object,
+                                  Queue<Response<Object>> responseQueue){
+        throw new UnsupportedOperationException();
+    }
 
     /**
      * Create an encoder.
      * @return encoder.
      */
-    ProtocolEncoder createEncoder();
+    default ProtocolEncoder createEncoder(){
+        throw new UnsupportedOperationException();
+    }
 
     /**
      * Creates a method call to be encoded and sent. This is usually called by a client (local or remote proxy).
@@ -133,13 +161,15 @@ public interface Factory {
      * @param params additional parameters associated with this method call.
      * @return method call that we are sending
      */
-    MethodCall<Object> createMethodCallToBeEncodedAndSent(long id, String address,
+    default MethodCall<Object> createMethodCallToBeEncodedAndSent(long id, String address,
                                                           String returnAddress,
                                                           String objectName,
                                                           String methodName,
                                                           long timestamp,
                                                           Object body,
-                                                          MultiMap<String, String> params);
+                                                          MultiMap<String, String> params){
+        throw new UnsupportedOperationException();
+    }
 
 
     /**
@@ -150,14 +180,18 @@ public interface Factory {
      * @param <T> type of proxy
      * @return new proxy object
      */
-    <T> T createLocalProxy(Class<T> serviceInterface, String serviceName, ServiceBundle serviceBundle);
+    default <T> T createLocalProxy(Class<T> serviceInterface, String serviceName, ServiceBundle serviceBundle){
+        throw new UnsupportedOperationException();
+    }
 
     /**
      * Create a response object from a string (HTTP response, Websocket body)
      * @param text of response message
      * @return response object
      */
-    Response<Object> createResponse(String text);
+    default Response<Object> createResponse(String text){
+        throw new UnsupportedOperationException();
+    }
 
     /**
      * Create a remote proxy using a sender that knows how to send method body over wire
@@ -170,10 +204,12 @@ public interface Factory {
      * @param <T> type of client
      * @return remote proxy
      */
-    <T> T createRemoteProxyWithReturnAddress(Class<T> serviceInterface, String uri, String serviceName, String returnAddressArg,
+    default <T> T createRemoteProxyWithReturnAddress(Class<T> serviceInterface, String uri, String serviceName, String returnAddressArg,
                                              Sender<String> sender,
                                              BeforeMethodCall beforeMethodCall,
-                                             int requestBatchSize);
+                                             int requestBatchSize){
+        throw new UnsupportedOperationException();
+    }
 
     /**
      * Parses a method call using an address prefix and a body.
@@ -183,10 +219,19 @@ public interface Factory {
      * @param originatingRequest the request that caused this method to be created
      * @return method call that we just created
      */
-    MethodCall<Object> createMethodCallToBeParsedFromBody(String addressPrefix, Object message, Request<Object> originatingRequest);
+    default MethodCall<Object> createMethodCallToBeParsedFromBody(String addressPrefix,
+                                                                  Object message,
+                                                                  Request<Object> originatingRequest){
+        throw new UnsupportedOperationException();
+    }
 
 
-    List<MethodCall<Object>> createMethodCallListToBeParsedFromBody(String addressPrefix, Object body, Request<Object> originatingRequest);
+    default List<MethodCall<Object>> createMethodCallListToBeParsedFromBody(
+            String addressPrefix,
+            Object body,
+            Request<Object> originatingRequest){
+        throw new UnsupportedOperationException();
+    }
 
     /**
      * Request request
@@ -194,38 +239,63 @@ public interface Factory {
      * @param args args
      * @return request
      */
-    MethodCall<Object> createMethodCallFromHttpRequest(Request<Object> request, Object args);
+    default MethodCall<Object> createMethodCallFromHttpRequest(
+            Request<Object> request, Object args){
+        throw new UnsupportedOperationException();
+    }
 
 
     /**
      * Creates a JSON Mapper.
      * @return json mapper
      */
-    JsonMapper createJsonMapper();
+    default JsonMapper createJsonMapper(){
+        throw new UnsupportedOperationException();
+    }
 
 
 
-    HttpServer createHttpServer(String host, int port, boolean manageQueues,
+    default HttpServer createHttpServer(String host, int port, boolean manageQueues,
                       int pollTime,
                       int requestBatchSize,
                       int flushInterval
-                      );
+                      ){
+        throw new UnsupportedOperationException();
+    }
 
-    HttpClient createHttpClient(String host, int port, int pollTime, int requestBatchSize, int timeOutInMilliseconds, int poolSize, boolean autoFlush);
+    default HttpClient createHttpClient(
+                String host,
+                int port,
+                int pollTime,
+                int requestBatchSize,
+                int timeOutInMilliseconds,
+                int poolSize,
+                boolean autoFlush){
+        throw new UnsupportedOperationException();
+    }
 
 
-    ServiceServer createServiceServer(final HttpServer httpServer,
+    default ServiceServer createServiceServer(final HttpServer httpServer,
                                       final ProtocolEncoder encoder,
                                       final ProtocolParser protocolParser,
                                       final ServiceBundle serviceBundle,
                                       final JsonMapper jsonMapper,
-                                      final int timeOutInSeconds);
+                                      final int timeOutInSeconds,
+                                      final int numberOfOutstandingRequests){
+        throw new UnsupportedOperationException();
+    }
 
 
 
-    Client createClient(String uri, HttpClient httpClient, int requestBatchSize);
+
+    default Client createClient(String uri, HttpClient httpClient, int requestBatchSize){
+        throw new UnsupportedOperationException();
+    }
 
 
-    ProtocolParser createProtocolParser();
+    default ProtocolParser createProtocolParser(){
+        throw new UnsupportedOperationException();
+    }
+
 
 }

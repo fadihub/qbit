@@ -64,7 +64,8 @@ public class IntegrationForJSONInputForPOSTAndWebSocketBodiesTest {
         employeeService = new EmployeeService();
 
         factory = QBit.factory();
-        final ServiceBundle bundle = factory.createServiceBundle("/root");
+        final ServiceBundle bundle =
+                factory.createServiceBundle("/root");
         serviceBundle = bundle;
         serviceBundleImpl = (ServiceBundleImpl) bundle;
 
@@ -235,7 +236,7 @@ public class IntegrationForJSONInputForPOSTAndWebSocketBodiesTest {
                 "\nPROTOCOL END\n");
         call = factory.createMethodCallToBeParsedFromBody(null, null, null, null, qbitStringBody, null);
         serviceBundle.call(call);
-        serviceBundle.flushSends();
+        serviceBundle.flush();
         Sys.sleep(100);
     }
 

@@ -4,6 +4,7 @@ import io.advantageous.qbit.message.Request;
 import io.advantageous.qbit.util.MultiMap;
 
 /**
+ * Represents a WebSocketMessage
  * Created by rhightower on 10/22/14.
  * @author rhightower
  */
@@ -41,6 +42,16 @@ public class WebSocketMessage implements Request<Object>{
     }
 
     @Override
+    public boolean hasParams() {
+        return false;
+    }
+
+    @Override
+    public boolean hasHeaders() {
+        return false;
+    }
+
+    @Override
     public long timestamp() {
         return timestamp;
     }
@@ -69,7 +80,7 @@ public class WebSocketMessage implements Request<Object>{
 
     @Override
     public boolean isSingleton() {
-        return false;
+        return true;
     }
 
     private static class RequestIdGenerator {

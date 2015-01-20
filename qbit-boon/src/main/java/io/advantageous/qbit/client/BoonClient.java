@@ -35,7 +35,7 @@ import io.advantageous.qbit.message.Response;
 
 import io.advantageous.qbit.service.BeforeMethodCall;
 import io.advantageous.qbit.service.Callback;
-import io.advantageous.qbit.service.method.impl.MethodCallImpl;
+import io.advantageous.qbit.message.impl.MethodCallImpl;
 import org.boon.Boon;
 import org.boon.Logger;
 import org.boon.Str;
@@ -105,6 +105,10 @@ public class BoonClient implements Client {
      */
     public void stop() {
 
+        flush();
+
+        Sys.sleep(100);
+
 
         if (httpServerProxy !=null) {
             try {
@@ -159,6 +163,13 @@ public class BoonClient implements Client {
     }
 
     public void flush() {
+
+        this.httpServerProxy.periodicFlushCallback(aVoid -> {
+            for (ClientProxy clientProxy : clientProxies) {
+                clientProxy.clientProxyFlush();
+            }
+        });
+
 
         httpServerProxy.flush();
     }
@@ -356,7 +367,24 @@ public class BoonClient implements Client {
                 if (actualReturnType != null) {
 
                     if ( componentClass != null && actualReturnType == List.class ) {
-                        event = MapObjectConversion.convertListOfMapsToObjects(componentClass, (List) event);
+
+                        try {
+                            event = MapObjectConversion.convertListOfMapsToObjects(componentClass, (List) event);
+                        } catch (Exception ex) {
+                            if (event instanceof CharSequence) {
+                                String errorMessage = event.toString();
+                                if (errorMessage.startsWith("java.lang.IllegalState")) {
+                                    handler.onError(new IllegalStateException(errorMessage));
+                                    return;
+                                } else {
+                                    handler.onError(new IllegalStateException("Conversion error"));
+                                    return;
+                                }
+                            } else {
+                                handler.onError(new IllegalStateException("Conversion error"));
+                                return;
+                            }
+                        }
                     } else {
                         event = Conversions.coerce(actualReturnType, event);
                     }
@@ -377,15 +405,12 @@ public class BoonClient implements Client {
 
     public void start() {
 
-        this.httpServerProxy.periodicFlushCallback(new Consumer<Void>() {
-            @Override
-            public void accept(Void aVoid) {
-                for (ClientProxy clientProxy : clientProxies) {
-                    clientProxy.clientProxyFlush();
-                }
+        this.httpServerProxy.periodicFlushCallback(aVoid -> {
+            for (ClientProxy clientProxy : clientProxies) {
+                clientProxy.clientProxyFlush();
             }
         });
 
-        this.httpServerProxy.run();
+        this.httpServerProxy.start();
     }
 }

@@ -19,7 +19,7 @@ public class HttpClientVertxTest {
     public void connect(int port) {
 
         client = new HttpClientBuilder().setPort(port).build();
-        client.run();
+        client.start();
 
         server = new HttpServerBuilder().setPort(port).build();
 
@@ -59,6 +59,8 @@ public class HttpClientVertxTest {
         client.sendWebSocketMessage(webSocketMessage);
         client.flush();
 
+        Sys.sleep(100);
+
 
         validate();
         stop();
@@ -83,7 +85,7 @@ public class HttpClientVertxTest {
 
         requestBuilder.setRemoteAddress("localhost").setMethod("GET").setUri("/client/foo");
 
-        requestBuilder.setResponse((code, mimeType, body) -> {
+        requestBuilder.setTextResponse((code, mimeType, body) -> {
             responseReceived = true;
 
             puts("CLIENT", code, mimeType, body);
@@ -101,7 +103,7 @@ public class HttpClientVertxTest {
     public void run() {
 
         server.start();
-        client.run();
+        client.start();
         Sys.sleep(500);
     }
 

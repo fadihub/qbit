@@ -41,6 +41,13 @@ public interface Service {
      */
     String name();
 
+    /**
+     * Name of the client
+     * @return name
+     */
+    String address();
+
+
 
     /**
      * Stop the client.
@@ -53,4 +60,7 @@ public interface Service {
      * @return addresses
      */
     Collection<String> addresses(String address);
+
+
+    void flush();
 }

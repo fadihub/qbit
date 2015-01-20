@@ -1,55 +1,73 @@
 package io.advantageous.qbit.boon;
 
+import io.advantageous.qbit.Factory;
+import io.advantageous.qbit.client.ClientProxy;
+import io.advantageous.qbit.util.Timer;
+import io.advantageous.qbit.message.MethodCall;
+import io.advantageous.qbit.client.ServiceProxyFactory;
+import io.advantageous.qbit.service.EndPoint;
+import org.boon.Str;
+import org.boon.primitive.CharBuf;
 
 import java.lang.reflect.InvocationHandler;
-
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.UUID;
 
-import io.advantageous.qbit.util.Timer;
-import io.advantageous.qbit.proxy.ServiceProxyFactory;
-import io.advantageous.qbit.service.EndPoint;
-import io.advantageous.qbit.service.method.impl.MethodCallImpl;
-import org.boon.Str;
-
-
 /**
- * Created by Richard on 9/30/14.
- *  @author Rick Hightower
+ * Created by Richard on 10/1/14.
+ * @author Rick Hightower
  */
 public class BoonServiceProxyFactory implements ServiceProxyFactory {
+
+    private final Factory factory;
+
 
     private static volatile long generatedMessageId;
 
 
+    public BoonServiceProxyFactory(Factory factory) {
+        this.factory = factory;
+    }
+
     @Override
-    public  <T> T createProxyWithReturnAddress(final Class<T> serviceInterface,
-                                               final String serviceName,
-                                               String returnAddressArg,
-                                               final EndPoint serviceBundle) {
+    public <T> T createProxyWithReturnAddress(Class<T> serviceInterface, final String serviceName,
+                                              String returnAddressArg,
+                                              final EndPoint endPoint) {
 
-
-        final String objectAddress = serviceBundle!=null
-                ? Str.add(serviceBundle.address(),  "/" , serviceName) : "";
+        final String objectAddress = endPoint!=null
+                ? Str.add(endPoint.address(), "/", serviceName) : "";
 
 
         if (!Str.isEmpty(returnAddressArg)) {
-                returnAddressArg = Str.add(objectAddress, "/"+ UUID.randomUUID());
+            returnAddressArg = Str.add(objectAddress, "/"+ UUID.randomUUID());
         }
 
         final String returnAddress = returnAddressArg;
+
+        final ThreadLocal<CharBuf> addressCreatorBufRef = new ThreadLocal<CharBuf>(){
+            @Override
+            protected CharBuf initialValue() {
+                return CharBuf.createCharBuf(255);
+            }
+        };
+
 
         InvocationHandler invocationHandler = new InvocationHandler() {
 
             long timestamp = Timer.timer().now();
             int times = 10;
-            long messageId = generatedMessageId+=1_000_000_000;
+            long messageId = generatedMessageId++;
 
             @Override
             public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
 
 
+                if (method.getName().equals("clientProxyFlush")) {
+
+                    endPoint.flush();
+                    return null;
+                }
                 times--;
                 if (times == 0){
                     timestamp = Timer.timer().now();
@@ -59,24 +77,32 @@ public class BoonServiceProxyFactory implements ServiceProxyFactory {
                 }
 
 
-                final String address = Str.add(objectAddress, "/", method.getName());
+                final CharBuf addressBuf = addressCreatorBufRef.get();
 
-                final MethodCallImpl call = MethodCallImpl.method(messageId++,
+                addressBuf.recycle();
+
+                addressBuf.add(objectAddress).add("/").add(method.getName());
+
+                final String address = addressBuf.toString();
+
+
+
+                final MethodCall<Object> call = factory.createMethodCallToBeEncodedAndSent(messageId++,
                         address, returnAddress,
-                        objectAddress, method.getName(), timestamp, args, null);
+                        serviceName, method.getName(), timestamp, args, null);
 
-
-
-                if (serviceBundle!=null) {
-                    serviceBundle.call(call);
+                if (method.getName().equals("toString")) {
+                    return "PROXY OBJECT";
                 }
+
+                endPoint.call(call);
 
                 return null;
             }
         };
 
         final Object o = Proxy.newProxyInstance(Thread.currentThread().getContextClassLoader(),
-                new Class[]{serviceInterface}, invocationHandler
+                new Class[]{serviceInterface, ClientProxy.class}, invocationHandler
         );
 
 
@@ -85,14 +111,8 @@ public class BoonServiceProxyFactory implements ServiceProxyFactory {
 
     }
 
-
     @Override
-    public  <T> T createProxy(final Class<T> serviceInterface,
-                              final String serviceName,
-                              final EndPoint serviceBundle) {
-
-        return createProxyWithReturnAddress(serviceInterface, serviceName, "", serviceBundle);
-
+    public <T> T createProxy(Class<T> serviceInterface, String serviceName, EndPoint endPoint) {
+        return createProxyWithReturnAddress(serviceInterface, serviceName, "", endPoint);
     }
-
 }

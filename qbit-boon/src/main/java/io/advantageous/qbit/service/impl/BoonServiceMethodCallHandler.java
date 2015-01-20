@@ -1,14 +1,18 @@
 package io.advantageous.qbit.service.impl;
 
+import io.advantageous.qbit.annotation.RequestMethod;
 import io.advantageous.qbit.bindings.ArgParamBinding;
+import io.advantageous.qbit.bindings.HttpMethod;
 import io.advantageous.qbit.bindings.MethodBinding;
 import io.advantageous.qbit.bindings.RequestParamBinding;
+import io.advantageous.qbit.http.HttpRequest;
 import io.advantageous.qbit.message.MethodCall;
+import io.advantageous.qbit.message.Request;
 import io.advantageous.qbit.message.Response;
 import io.advantageous.qbit.queue.SendQueue;
 import io.advantageous.qbit.service.Callback;
 import io.advantageous.qbit.service.ServiceMethodHandler;
-import io.advantageous.qbit.service.method.impl.ResponseImpl;
+import io.advantageous.qbit.message.impl.ResponseImpl;
 import io.advantageous.qbit.util.MultiMap;
 import org.boon.Lists;
 import org.boon.Pair;
@@ -40,9 +44,11 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
     private MethodAccess queueIdle;
 
     private String address = "";
+
+    private String name = "";
     private TreeSet<String> addresses = new TreeSet<>();
 
-    private Map<String, Pair<MethodBinding, MethodAccess>> methodMap = new LinkedHashMap<>();
+    private Map<String, Map<String, Pair<MethodBinding, MethodAccess>>> methodMap = new LinkedHashMap<>();
 
     private SendQueue<Response<Object>> responseSendQueue;
 
@@ -69,7 +75,28 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
         String address = methodCall.address();
 
 
-        final Pair<MethodBinding, MethodAccess> binding = methodMap.get(address);
+
+
+
+        final Map<String, Pair<MethodBinding, MethodAccess>> mappings = methodMap.get(address);
+
+
+        final Request<Object> request = methodCall.originatingRequest();
+
+        Pair<MethodBinding, MethodAccess> binding = null;
+
+        if (mappings!=null && request instanceof HttpRequest) {
+            HttpRequest httpRequest = ((HttpRequest) request);
+            final String method = httpRequest.getMethod();
+            binding = mappings.get(method);
+        }
+
+        if (mappings!=null && mappings.size() == 1 && binding == null) {
+            binding = mappings.values().iterator().next();
+        }
+
+
+
         if (binding != null) {
             return invokeByAddressWithSimpleBinding(methodCall, binding);
         } else {
@@ -78,17 +105,32 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
     }
 
     private Response<Object> invokeByAddressWithComplexBinding(MethodCall<Object> methodCall) {
-
         String mAddress = addresses.lower(methodCall.address());
+
+        final Map<String, Pair<MethodBinding, MethodAccess>> mappings = methodMap.get(mAddress);
 
         if (!methodCall.address().startsWith(mAddress)) {
             throw new IllegalArgumentException("Method not found: " + methodCall);
         }
 
+
+
+        final Request<Object> request = methodCall.originatingRequest();
+
+        Pair<MethodBinding, MethodAccess> binding = null;
+
+        if (request instanceof HttpRequest) {
+            HttpRequest httpRequest = ((HttpRequest) request);
+            final String method = httpRequest.getMethod();
+            binding = mappings.get(method);
+        } else if (mappings!=null && mappings.size() == 1) {
+            binding = mappings.values().iterator().next();
+        }
+
+
+
         final String[] split = StringScanner.split(methodCall.address(), '/');
 
-
-        Pair<MethodBinding, MethodAccess> binding = methodMap.get(mAddress);
 
         final MethodBinding methodBinding = binding.getFirst();
 
@@ -379,6 +421,15 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
 
             serviceAddress =  Str.camelCaseLower(classMeta.name());
         }
+
+        this.name = readNameFromAnnotation(classMeta);
+
+        if (Str.isEmpty(name)) {
+
+            this.name =  Str.uncapitalize(classMeta.name());
+
+        }
+
         if (serviceAddress.endsWith("/")) {
             serviceAddress = Str.slc(serviceAddress, 0, -1);
         }
@@ -439,9 +490,11 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
 
             String methodAddress = readAddressFromAnnotation(methodAccess);
 
+            String httpMethod = readHttpMethod(methodAccess);
+
             if (methodAddress != null && !methodAddress.isEmpty()) {
 
-                doRegisterMethodUnderURI(methodAccess, methodAddress);
+                doRegisterMethodUnderURI(httpMethod, methodAccess, methodAddress);
 
 
             }
@@ -449,16 +502,16 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
         }
 
 
-        doRegisterMethodUnderURI(methodAccess, methodAccess.name());
-        doRegisterMethodUnderURI(methodAccess,
+        doRegisterMethodUnderURI("GET", methodAccess, methodAccess.name());
+        doRegisterMethodUnderURI("GET", methodAccess,
                 methodAccess.name().toLowerCase());
-        doRegisterMethodUnderURI(methodAccess,
+        doRegisterMethodUnderURI("GET", methodAccess,
                 methodAccess.name().toUpperCase());
 
 
     }
 
-    private void doRegisterMethodUnderURI(MethodAccess methodAccess, String methodAddress) {
+    private void doRegisterMethodUnderURI(String httpMethod, MethodAccess methodAccess, String methodAddress) {
 
         if (methodAddress.startsWith("/")) {
             methodAddress = Str.slc(methodAddress, 1);
@@ -466,7 +519,7 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
 
 
         MethodBinding methodBinding =
-                new MethodBinding(methodAccess.name(), Str.join('/', address, methodAddress));
+                new MethodBinding(httpMethod, methodAccess.name(), Str.join('/', address, methodAddress));
 
 
         final List<List<AnnotationData>> annotationDataForParams = methodAccess.annotationDataForParams();
@@ -490,7 +543,16 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
             index++;
         }
 
-        this.methodMap.put(methodBinding.address(), new Pair<>(methodBinding, methodAccess));
+        Map<String, Pair<MethodBinding, MethodAccess>> mappings = this.methodMap.get(methodBinding.address());
+
+        if (mappings == null) {
+            mappings = new HashMap<>(4);
+
+            this.methodMap.put(methodBinding.address(), mappings);
+        }
+
+        mappings.put(methodBinding.method(), new Pair<>(methodBinding, methodAccess));
+
     }
 
 
@@ -523,6 +585,54 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
         return address == null ? "" : address;
     }
 
+
+    private String readHttpMethod(Annotated annotated) {
+        String method = getHttpMethod("RequestMapping", annotated);
+        return method == null || method.isEmpty() ? "GET" : method;
+    }
+
+    private String readNameFromAnnotation(Annotated annotated) {
+        String name = null;
+
+        if (Str.isEmpty(name)) {
+            name = getAddress("Name", annotated);
+        }
+
+        if (Str.isEmpty(name)) {
+            name = getAddress("Service", annotated);
+        }
+
+
+        return name == null ? "" : name;
+    }
+
+
+    private String getHttpMethod(String name, Annotated annotated) {
+        AnnotationData requestMapping = annotated.annotation(name);
+
+        if (requestMapping != null) {
+            Object value = requestMapping.getValues().get("method");
+
+            if (value instanceof String[]) {
+
+                String[] values = (String[]) value;
+                if (values.length > 0 && values[0] != null && !values[0].isEmpty()) {
+                    return values[0];
+                }
+            }if (value instanceof RequestMethod[]) {
+
+                RequestMethod[] values = (RequestMethod[]) value;
+                if (values.length > 0 && values[0] != null ) {
+                    return values[0].toString();
+                }
+            }  else {
+
+                return value.toString();
+            }
+        }
+        return null;
+    }
+
     private String getAddress(String name, Annotated annotated) {
         AnnotationData requestMapping = annotated.annotation(name);
 
@@ -548,6 +658,11 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
     @Override
     public String address() {
         return address;
+    }
+
+    @Override
+    public String name() {
+        return name;
     }
 
 
@@ -584,7 +699,7 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
         }
     }
 
-    public Map<String, Pair<MethodBinding, MethodAccess>> methodMap() {
+    public Map<String, Map<String, Pair<MethodBinding, MethodAccess>>> methodMap() {
         return methodMap;
     }
 }

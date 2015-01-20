@@ -11,6 +11,7 @@ import io.advantageous.qbit.queue.ReceiveQueueListener;
 import io.advantageous.qbit.queue.SendQueue;
 import io.advantageous.qbit.queue.impl.BasicQueue;
 import io.advantageous.qbit.util.MultiMap;
+import io.advantageous.qbit.util.Timer;
 import io.advantageous.qbit.vertx.MultiMapWrapper;
 import org.boon.Str;
 import org.slf4j.Logger;
@@ -72,7 +73,7 @@ public class HttpServerVertx implements HttpServer {
 
     }
 
-    private Consumer<WebSocketMessage> webSocketMessageConsumer = websocketMessage -> logger.debug("HttpServerVertx::DEFAULT WEBSOCKET HANDLER CALLED WHICH IS ODD");
+    private Consumer<WebSocketMessage> webSocketMessageConsumer = websocketMessage -> logger.debug("HttpServerVertx::DEFAULT WEB_SOCKET HANDLER CALLED WHICH IS ODD");
     private Consumer<HttpRequest> httpRequestConsumer = request -> logger.debug("HttpServerVertx::DEFAULT HTTP HANDLER CALLED WHICH IS ODD");
 
 
@@ -353,8 +354,7 @@ public class HttpServerVertx implements HttpServer {
             case "POST":
 
                 request.bodyHandler((Buffer buffer) -> {
-                    final HttpRequest postRequest;
-                    postRequest = createRequest(request, buffer);
+                    final HttpRequest postRequest = createRequest(request, buffer);
 
                     if (manageQueues) {
 
@@ -437,6 +437,7 @@ public class HttpServerVertx implements HttpServer {
                 webSocket::writeTextFrame);
     }
 
+    volatile long id;
     private HttpRequest createRequest(final HttpServerRequest request, final Buffer buffer) {
 
         final MultiMap<String, String> params = request.params().size() == 0 ? MultiMap.empty() : new MultiMapWrapper(request.params());
@@ -445,19 +446,35 @@ public class HttpServerVertx implements HttpServer {
 
         final String contentType = request.headers().get("Content-Type");
 
-        return new HttpRequest(request.uri(), request.method(), params, headers, body,
+        return new HttpRequest(id++, request.uri(), request.method(), params, headers, body,
                 request.remoteAddress().toString(),
-                contentType, createResponse(request.response()));
+                contentType, createResponse(request.response()), Timer.timer().now());
     }
 
+
+    private static Buffer createBuffer(Object body) {
+        Buffer buffer = null;
+
+        if (body instanceof byte[]) {
+
+            byte[] bBody = ((byte[]) body);
+            buffer = new Buffer(bBody);
+
+        } else if (body instanceof String) {
+
+            String sBody = ((String) body);
+            buffer = new Buffer(sBody, "UTF-8");
+        }
+        return buffer;
+    }
 
     private static class HttpResponseInternal {
         final HttpServerResponse response;
         final int code;
         final String mimeType;
-        final String body;
+        final Object body;
 
-        private HttpResponseInternal(HttpServerResponse response, int code, String mimeType, String body) {
+        private HttpResponseInternal(HttpServerResponse response, int code, String mimeType, Object body) {
             this.response = response;
             this.code = code;
             this.mimeType = mimeType;
@@ -466,10 +483,13 @@ public class HttpServerVertx implements HttpServer {
 
         public void send() {
             response.setStatusCode(code).putHeader("Content-Type", mimeType);
-            Buffer buffer = new Buffer(body, "UTF-8");
+
+            Buffer buffer = createBuffer(body);
+
             response.putHeader("Content-Size", Integer.toString(buffer.length()));
             response.end(buffer);
         }
+
     }
 
     private HttpResponse createResponse(final HttpServerResponse response) {
@@ -491,7 +511,12 @@ public class HttpServerVertx implements HttpServer {
             } else {
 
                 response.setStatusCode(code).putHeader("Content-Type", mimeType);
-                response.end(body, "UTF-8");
+
+                Buffer buffer = createBuffer(body);
+
+                response.putHeader("Content-Size", Integer.toString(buffer.length()));
+
+                response.end(buffer);
             }
 
         };

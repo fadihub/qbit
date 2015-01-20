@@ -145,6 +145,7 @@ public class HttpClientVertx implements HttpClient {
         try {
             httpRequestSendQueue.flushSends();
             webSocketSendQueue.flushSends();
+            periodicFlushCallback.accept(null);
         } finally {
             requestLock.unlock();
         }
@@ -193,7 +194,7 @@ public class HttpClientVertx implements HttpClient {
     }
 
     @Override
-    public void run() {
+    public void start() {
         requestQueue =
                 new QueueBuilder().setName("HttpRequestQueue " + host + " " + port).setPollWait(pollTime).setBatchSize(requestBatchSize).build();
 
@@ -226,21 +227,6 @@ public class HttpClientVertx implements HttpClient {
             }
 
             @Override
-            public void empty() {
-
-            }
-
-            @Override
-            public void limit() {
-
-            }
-
-            @Override
-            public void shutdown() {
-
-            }
-
-            @Override
             public void idle() {
                 autoFlush();
             }
@@ -252,23 +238,6 @@ public class HttpClientVertx implements HttpClient {
             public void receive(final HttpRequest request) {
 
                 doSendRequestToServer(request, httpClient);
-            }
-
-            @Override
-            public void empty() {
-
-
-
-            }
-
-            @Override
-            public void limit() {
-
-            }
-
-            @Override
-            public void shutdown() {
-
             }
 
             @Override

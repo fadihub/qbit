@@ -86,7 +86,7 @@ public class HttpPerfClientTest {
         final HttpRequest perfRequest = httpRequestBuilder
                                         .setContentType("application/json")
                                         .setMethod("GET").setUri("/perf/").addHeader("X-USER", "BOB")
-                                        .setResponse((code, mimeType, body) -> {
+                                        .setTextResponse((code, mimeType, body) -> {
                                             if (code != 200 || !body.equals("\"ok\"")) {
                                                 errorCount.increment();
                                                 return;
@@ -119,7 +119,7 @@ public class HttpPerfClientTest {
                             .setPoolSize(poolSize).setRequestBatchSize(batchSize).
                                     setPollTime(pollTime).setAutoFlush(true)
                             .build();
-                    client.run();
+                    client.start();
 
                     Sys.sleep(5000);
 

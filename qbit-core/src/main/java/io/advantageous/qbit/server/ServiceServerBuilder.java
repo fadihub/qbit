@@ -1,13 +1,21 @@
 package io.advantageous.qbit.server;
 
+import io.advantageous.qbit.GlobalConstants;
 import io.advantageous.qbit.QBit;
 import io.advantageous.qbit.http.HttpServer;
 import io.advantageous.qbit.json.JsonMapper;
+import io.advantageous.qbit.message.Request;
+import io.advantageous.qbit.service.BeforeMethodCall;
 import io.advantageous.qbit.service.ServiceBundle;
+import io.advantageous.qbit.service.impl.ServiceConstants;
 import io.advantageous.qbit.spi.ProtocolEncoder;
 import io.advantageous.qbit.spi.ProtocolParser;
+import io.advantageous.qbit.transforms.Transformer;
 
 /**
+ *
+ * Allows for the programmatic construction of a service.
+ * @author rhightower
  * Created by Richard on 11/14/14.
  */
 
@@ -16,11 +24,82 @@ public class ServiceServerBuilder {
     private String host = "localhost";
     private int port = 8080;
     private boolean manageQueues = true;
-    private int pollTime = 100;
-    private int requestBatchSize = 10;
+    private int pollTime = GlobalConstants.POLL_WAIT;
+    private int requestBatchSize = GlobalConstants.BATCH_SIZE;
     private int flushInterval = 100;
     private String uri = "/services";
+    private int numberOfOutstandingRequests = 500_000;
 
+    private int timeoutSeconds = 30;
+    /**
+     * Allows interception of method calls before they get sent to a client.
+     * This allows us to transform or reject method calls.
+     */
+    private  BeforeMethodCall beforeMethodCall = ServiceConstants.NO_OP_BEFORE_METHOD_CALL;
+
+    /**
+     * Allows interception of method calls before they get transformed and sent to a client.
+     * This allows us to transform or reject method calls.
+     */
+    private  BeforeMethodCall beforeMethodCallAfterTransform = ServiceConstants.NO_OP_BEFORE_METHOD_CALL;
+
+
+    /**
+     * Allows transformation of arguments, for example from JSON to Java objects.
+     */
+    private Transformer<Request, Object> argTransformer = ServiceConstants.NO_OP_ARG_TRANSFORM;
+
+
+    private boolean eachServiceInItsOwnThread=true;
+
+    public boolean isEachServiceInItsOwnThread() {
+        return eachServiceInItsOwnThread;
+    }
+
+    public ServiceServerBuilder setEachServiceInItsOwnThread(boolean eachServiceInItsOwnThread) {
+        this.eachServiceInItsOwnThread = eachServiceInItsOwnThread;
+        return this;
+    }
+
+
+    public BeforeMethodCall getBeforeMethodCall() {
+        return beforeMethodCall;
+    }
+
+    public ServiceServerBuilder setBeforeMethodCall(BeforeMethodCall beforeMethodCall) {
+        this.beforeMethodCall = beforeMethodCall;
+        return this;
+    }
+
+    public BeforeMethodCall getBeforeMethodCallAfterTransform() {
+        return beforeMethodCallAfterTransform;
+
+    }
+
+    public ServiceServerBuilder setBeforeMethodCallAfterTransform(BeforeMethodCall beforeMethodCallAfterTransform) {
+        this.beforeMethodCallAfterTransform = beforeMethodCallAfterTransform;
+        return this;
+
+    }
+
+    public Transformer<Request, Object> getArgTransformer() {
+        return argTransformer;
+
+    }
+
+    public ServiceServerBuilder setArgTransformer(Transformer<Request, Object> argTransformer) {
+        this.argTransformer = argTransformer;
+        return this;
+    }
+
+    public int getNumberOfOutstandingRequests() {
+        return numberOfOutstandingRequests;
+    }
+
+    public ServiceServerBuilder setNumberOfOutstandingRequests(int numberOfOutstandingRequests) {
+        this.numberOfOutstandingRequests = numberOfOutstandingRequests;
+        return this;
+    }
 
     public String getUri() {
         return uri;
@@ -40,7 +119,6 @@ public class ServiceServerBuilder {
         return this;
     }
 
-    private int timeoutSeconds = 30;
 
     public String getHost() {
         return host;
@@ -103,12 +181,19 @@ public class ServiceServerBuilder {
         final HttpServer httpServer = QBit.factory().createHttpServer(host, port, manageQueues, pollTime, requestBatchSize, flushInterval);
         final JsonMapper jsonMapper = QBit.factory().createJsonMapper();
         final ProtocolEncoder encoder = QBit.factory().createEncoder();
-        final ServiceBundle serviceBundle = QBit.factory().createServiceBundle(uri, true);
+
+        final ServiceBundle serviceBundle = QBit.factory().createServiceBundle(uri,
+                this.getRequestBatchSize(),
+                this.getPollTime(),
+                QBit.factory(),
+                eachServiceInItsOwnThread, this.getBeforeMethodCall(),
+                this.getBeforeMethodCallAfterTransform(),
+                this.getArgTransformer());
 
         final ProtocolParser parser = QBit.factory().createProtocolParser();
 
 
-        final ServiceServer serviceServer = QBit.factory().createServiceServer(httpServer, encoder, parser, serviceBundle, jsonMapper, timeoutSeconds);
+        final ServiceServer serviceServer = QBit.factory().createServiceServer(httpServer, encoder, parser, serviceBundle, jsonMapper, timeoutSeconds, numberOfOutstandingRequests);
         return serviceServer;
 
     }

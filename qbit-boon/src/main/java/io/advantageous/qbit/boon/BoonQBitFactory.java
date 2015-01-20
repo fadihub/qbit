@@ -3,14 +3,16 @@ package io.advantageous.qbit.boon;
 import io.advantageous.qbit.BoonJsonMapper;
 import io.advantageous.qbit.Factory;
 import io.advantageous.qbit.GlobalConstants;
+import io.advantageous.qbit.QBit;
 import io.advantageous.qbit.client.Client;
 import io.advantageous.qbit.http.HttpClient;
 import io.advantageous.qbit.http.HttpServer;
 import io.advantageous.qbit.json.JsonMapper;
 import io.advantageous.qbit.message.MethodCall;
+import io.advantageous.qbit.message.MethodCallBuilder;
 import io.advantageous.qbit.message.Request;
 import io.advantageous.qbit.message.Response;
-import io.advantageous.qbit.proxy.ServiceProxyFactory;
+import io.advantageous.qbit.client.ServiceProxyFactory;
 import io.advantageous.qbit.queue.Queue;
 import io.advantageous.qbit.sender.Sender;
 import io.advantageous.qbit.sender.SenderEndPoint;
@@ -21,9 +23,11 @@ import io.advantageous.qbit.service.Service;
 import io.advantageous.qbit.service.ServiceBundle;
 import io.advantageous.qbit.service.impl.BoonServiceMethodCallHandler;
 import io.advantageous.qbit.service.impl.ServiceBundleImpl;
+import io.advantageous.qbit.service.impl.ServiceConstants;
 import io.advantageous.qbit.service.impl.ServiceImpl;
-import io.advantageous.qbit.service.method.impl.MethodCallImpl;
+import io.advantageous.qbit.message.impl.MethodCallImpl;
 import io.advantageous.qbit.spi.*;
+import io.advantageous.qbit.transforms.Transformer;
 import io.advantageous.qbit.util.MultiMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,9 +48,9 @@ import java.util.concurrent.TimeUnit;
 public class BoonQBitFactory implements Factory {
 
     private ProtocolParser defaultProtocol = new BoonProtocolParser();
-    private ServiceProxyFactory serviceProxyFactory = new BoonServiceProxyFactory();
+    private ServiceProxyFactory serviceProxyFactory = new BoonServiceProxyFactory(this);
 
-    private ServiceProxyFactory remoteServiceProxyFactory = new BoonJSONServiceFactory(this);
+    private ServiceProxyFactory remoteServiceProxyFactory = new BoonServiceProxyFactory(this);
 
 
     private final Logger logger = LoggerFactory.getLogger(BoonQBitFactory.class);
@@ -70,7 +74,7 @@ public class BoonQBitFactory implements Factory {
                                                                  Object body,
                                                                  MultiMap<String, String> params) {
 
-        return MethodCallImpl.method(id, address, returnAddress, objectName, methodName, timestamp, body, params);
+        return MethodCallBuilder.createMethodCallToBeEncodedAndSent(id, address, returnAddress, objectName, methodName, timestamp, body, params);
     }
 
     @Override
@@ -96,87 +100,16 @@ public class BoonQBitFactory implements Factory {
 
 
     @Override
-    public MethodCall<Object> createMethodCallToBeParsedFromBody(String addressPrefix, Object body, Request<Object> originatingRequest) {
-
-        MethodCall<Object> methodCall = null;
-
-        if (body != null) {
-            ProtocolParser parser = selectProtocolParser(body, null);
-
-            if (parser != null) {
-                methodCall = parser.parseMethodCallUsingAddressPrefix(addressPrefix, body);
-            } else {
-                methodCall = defaultProtocol.parseMethodCall(body);
-            }
-        }
-
-        if (methodCall instanceof MethodCallImpl) {
-            MethodCallImpl impl = ((MethodCallImpl) methodCall);
-            impl.originatingRequest(originatingRequest);
-        }
-
-        return methodCall;
-
-    }
-
-
-
-    public List<MethodCall<Object>> createMethodCallListToBeParsedFromBody(String addressPrefix, Object body, Request<Object> originatingRequest) {
-
-        List<MethodCall<Object>> methodCalls = Collections.emptyList();
-
-
-        if (body != null) {
-            ProtocolParser parser = selectProtocolParser(body, null);
-
-            if (parser != null) {
-                methodCalls = parser.parseMethodCallListUsingAddressPrefix(addressPrefix, body);
-            } else {
-                methodCalls = defaultProtocol.parseMethodCallListUsingAddressPrefix(addressPrefix, body);
-            }
-        }
-
-
-        for (MethodCall<Object> methodCall : methodCalls) {
-            if (methodCall instanceof MethodCallImpl) {
-                MethodCallImpl impl = ((MethodCallImpl) methodCall);
-                impl.originatingRequest(originatingRequest);
-            }
-        }
-
-        return methodCalls;
-
-    }
-
-    @Override
     public MethodCall<Object> createMethodCallFromHttpRequest(final Request<Object> request, Object args) {
 
-
-        MethodCall<Object> mc = null;
-        MethodCallImpl methodCall =
-                MethodCallImpl.method(request, args);
-
-        if (request.body() != null) {
-            ProtocolParser parser = selectProtocolParser(request.body(), request.params());
-
-            if (parser != null) {
-                mc = parser.parseMethodCall(request.body());
-            } else {
-                mc = defaultProtocol.parseMethodCall(request.body());
-            }
-            if (mc instanceof MethodCallImpl) {
-                MethodCallImpl mcImpl = (MethodCallImpl) mc;
-                mcImpl.overrides(methodCall);
-                methodCall = mcImpl;
-            } else {
-                methodCall.overridesFromParams();
-            }
-
-        }
-
-
-
-        return methodCall;
+        MethodCallBuilder methodCallBuilder = new MethodCallBuilder();
+        methodCallBuilder.setOriginatingRequest(request);
+        methodCallBuilder.setBody(args);
+        methodCallBuilder.setHeaders(request.headers());
+        methodCallBuilder.setParams(request.params());
+        methodCallBuilder.setAddress(request.address());
+        methodCallBuilder.overridesFromParams();
+        return methodCallBuilder.build();
 
     }
 
@@ -202,9 +135,12 @@ public class BoonQBitFactory implements Factory {
             final ProtocolParser protocolParser,
             final ServiceBundle serviceBundle,
             final JsonMapper jsonMapper,
-            final int timeOutInSeconds) {
-        return new ServiceServerImpl(httpServer, encoder, protocolParser, serviceBundle, jsonMapper, timeOutInSeconds);
+            final int timeOutInSeconds,
+            final int numberOfOutstandingRequests) {
+        return new ServiceServerImpl(httpServer, encoder, protocolParser, serviceBundle, jsonMapper, timeOutInSeconds, numberOfOutstandingRequests);
     }
+
+
 
     @Override
     public Client createClient(String uri, HttpClient httpClient, int requestBatchSize) {
@@ -225,29 +161,39 @@ public class BoonQBitFactory implements Factory {
                                                                  Object body,
                                                                  MultiMap<String, String> params) {
 
-        MethodCall<Object> mc = null;
-        MethodCallImpl methodCall =
-                MethodCallImpl.method(0L, address, returnAddress, objectName, methodName, 0L, body, params);
+
+        MethodCall<Object> parsedMethodCall = null;
 
         if (body != null) {
             ProtocolParser parser = selectProtocolParser(body, params);
 
             if (parser != null) {
-                mc = parser.parseMethodCall(body);
+                parsedMethodCall= parser.parseMethodCall(body);
             } else {
-                mc = defaultProtocol.parseMethodCall(body);
+                parsedMethodCall = defaultProtocol.parseMethodCall(body);
             }
         }
 
-        if (mc instanceof MethodCallImpl) {
-            MethodCallImpl mcImpl = (MethodCallImpl) mc;
-            mcImpl.overrides(methodCall);
-            methodCall = mcImpl;
-        } else {
-            methodCall.overridesFromParams();
+
+        if (parsedMethodCall!=null) {
+            return parsedMethodCall;
         }
 
-        return methodCall;
+
+        MethodCallBuilder methodCallBuilder = new MethodCallBuilder();
+
+        methodCallBuilder.setName(methodName);
+        methodCallBuilder.setBody(body);
+        methodCallBuilder.setObjectName(objectName);
+        methodCallBuilder.setAddress(address);
+        methodCallBuilder.setReturnAddress(returnAddress);
+        if (params!=null) {
+            methodCallBuilder.setParams(params);
+        }
+
+        methodCallBuilder.overridesFromParams();
+
+        return methodCallBuilder.build();
     }
 
     @Override
@@ -269,16 +215,6 @@ public class BoonQBitFactory implements Factory {
         return null;
     }
 
-    @Override
-    public ServiceBundle createServiceBundle(String path, boolean async) {
-        return new ServiceBundleImpl(path, 50, 5, this, async);
-    }
-
-
-    @Override
-    public ServiceBundle createServiceBundle(String path) {
-        return new ServiceBundleImpl(path, 50, 5, this, false);
-    }
 
 
     @Override
@@ -312,6 +248,23 @@ public class BoonQBitFactory implements Factory {
 
     }
 
+
+    @Override
+    public ServiceBundle createServiceBundle(String address, final int batchSize, final int pollRate,
+                                      final Factory factory, final boolean asyncCalls,
+                                      final BeforeMethodCall beforeMethodCall,
+                                      final BeforeMethodCall beforeMethodCallAfterTransform,
+                                      final Transformer<Request, Object> argTransformer){
+        return new ServiceBundleImpl(address, batchSize, pollRate, factory,
+                asyncCalls, beforeMethodCall, beforeMethodCallAfterTransform, argTransformer);
+    }
+
+
+    @Override
+    public ServiceBundle createServiceBundle(String address){
+        return new ServiceBundleImpl(address, GlobalConstants.BATCH_SIZE, GlobalConstants.POLL_WAIT, QBit.factory(),
+                true, ServiceConstants.NO_OP_BEFORE_METHOD_CALL, ServiceConstants.NO_OP_BEFORE_METHOD_CALL, ServiceConstants.NO_OP_ARG_TRANSFORM);
+    }
 
     @Override
     public ProtocolEncoder createEncoder() {

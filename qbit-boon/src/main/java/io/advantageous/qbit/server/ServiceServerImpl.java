@@ -9,14 +9,13 @@ import io.advantageous.qbit.message.MethodCall;
 import io.advantageous.qbit.message.Request;
 import io.advantageous.qbit.message.Response;
 import io.advantageous.qbit.queue.*;
-import io.advantageous.qbit.queue.Queue;
-import io.advantageous.qbit.queue.impl.BasicQueue;
 import io.advantageous.qbit.service.ServiceBundle;
-import io.advantageous.qbit.service.method.impl.MethodCallImpl;
+import io.advantageous.qbit.message.impl.MethodCallImpl;
+import io.advantageous.qbit.message.impl.ResponseImpl;
 import io.advantageous.qbit.spi.ProtocolEncoder;
 import io.advantageous.qbit.spi.ProtocolParser;
+import io.advantageous.qbit.util.MultiMap;
 import io.advantageous.qbit.util.Timer;
-import org.boon.Sets;
 import org.boon.Str;
 import org.boon.StringScanner;
 import org.boon.core.Sys;
@@ -28,11 +27,10 @@ import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
-
-import static org.boon.Boon.puts;
 
 /**
  * Created by rhightower on 10/22/14.
@@ -43,26 +41,22 @@ public class ServiceServerImpl implements ServiceServer {
 
 
     private final Logger logger = LoggerFactory.getLogger(ServiceServerImpl.class);
+    private final boolean debug = logger.isDebugEnabled();
     protected int timeoutInSeconds = 30;
     protected ProtocolEncoder encoder;
     protected HttpServer httpServer;
     protected ServiceBundle serviceBundle;
     protected JsonMapper jsonMapper;
     protected ProtocolParser parser;
-
+    Object context = Sys.contextToHold();
+    long lastTimeoutCheckTime = 0;
     private Set<String> getMethodURIs = new LinkedHashSet<>();
     private Set<String> postMethodURIs = new LinkedHashSet<>();
     private Set<String> objectNameAddressURIWithVoidReturn = new LinkedHashSet<>();
     private Set<String> getMethodURIsWithVoidReturn = new LinkedHashSet<>();
     private Set<String> postMethodURIsWithVoidReturn = new LinkedHashSet<>();
-    private Queue<Request<Object>> outstandingRequests = new QueueBuilder().setName("outstandingRequests").setPollWait(10).setBatchSize(5).build();
-
-    private SendQueue<Request<Object>> sendQueueOutstanding = outstandingRequests.sendQueue();
-    private final boolean debug = logger.isDebugEnabled();
+    private BlockingQueue<Request<Object>> outstandingRequests;
     private AtomicBoolean stop = new AtomicBoolean();
-
-    Object context = Sys.contextToHold();
-
 
 
     public ServiceServerImpl(final HttpServer httpServer,
@@ -70,20 +64,31 @@ public class ServiceServerImpl implements ServiceServer {
                              final ProtocolParser parser,
                              final ServiceBundle serviceBundle,
                              final JsonMapper jsonMapper,
-                             final int timeOutInSeconds) {
+                             final int timeOutInSeconds,
+                             final int numberOfOutstandingRequests) {
         this.encoder = encoder;
         this.parser = parser;
         this.httpServer = httpServer;
         this.serviceBundle = serviceBundle;
         this.jsonMapper = jsonMapper;
         this.timeoutInSeconds = timeOutInSeconds;
+        this.outstandingRequests = new ArrayBlockingQueue<>(numberOfOutstandingRequests);
     }
 
 
-    protected ServiceServerImpl() {
+    private void writeResponse(HttpResponse response, int code, String mimeType, String responseString) {
 
+        writeResponse(response, code, mimeType, responseString, MultiMap.EMPTY);
     }
 
+    private void writeResponse(HttpResponse response, int code, String mimeType, String responseString, MultiMap<String, String> headers) {
+
+        if (response.isText()) {
+            response.response(code, mimeType, responseString);
+        } else {
+            response.response(code, mimeType, responseString.getBytes(StandardCharsets.UTF_8));
+        }
+    }
 
     /**
      * All REST calls come through here.
@@ -105,18 +110,27 @@ public class ServiceServerImpl implements ServiceServer {
             case "GET":
                 knownURI = getMethodURIs.contains(uri);
                 if (getMethodURIsWithVoidReturn.contains(uri)) {
-                    request.getResponse().response(200, "application/json", "\"success\"");
+                    writeResponse(request.getResponse(), 200, "application/json", "\"success\"", request.getHeaders());
+
                 } else {
-                    addRequestToCheckForTimeouts(request);
+                    if (!addRequestToCheckForTimeouts(request)) {
+
+                        writeResponse(request.getResponse(), 429, "application/json", "\"too many outstanding requests\"", request.getHeaders());
+                        return;
+                    }
                 }
                 break;
 
             case "POST":
                 knownURI = postMethodURIs.contains(uri);
                 if (postMethodURIsWithVoidReturn.contains(uri)) {
-                    request.getResponse().response(200, "application/json", "\"success\"");
+                    writeResponse(request.getResponse(), 200, "application/json", "\"success\"", request.getHeaders());
                 } else {
-                    addRequestToCheckForTimeouts(request);
+                    if (!addRequestToCheckForTimeouts(request)) {
+
+                        writeResponse(request.getResponse(), 429, "application/json", "\"too many outstanding requests\"", request.getHeaders());
+                        return;
+                    }
                 }
                 if (!Str.isEmpty(request.getBody())) {
                     args = jsonMapper.fromJson(new String(request.getBody(), StandardCharsets.UTF_8));
@@ -127,8 +141,9 @@ public class ServiceServerImpl implements ServiceServer {
 
         if (!knownURI) {
             request.handled(); //Mark the request as handled.
-            request.getResponse().response(404, "application/json",
-                    Str.add("\"No service method for URI\"", request.getUri()));
+
+            writeResponse(request.getResponse(), 404, "application/json",
+                    Str.add("\"No service method for URI ", request.getUri(), "\""), request.getHeaders());
 
         }
 
@@ -143,8 +158,6 @@ public class ServiceServerImpl implements ServiceServer {
 
     }
 
-
-
     public List<MethodCall<Object>> createMethodCallListToBeParsedFromBody(String addressPrefix, Object body, Request<Object> originatingRequest) {
 
         List<MethodCall<Object>> methodCalls;
@@ -156,6 +169,20 @@ public class ServiceServerImpl implements ServiceServer {
         } else {
             methodCalls = Collections.emptyList();
 
+        }
+
+        if (methodCalls == null) {
+
+            if (originatingRequest instanceof WebSocketMessage) {
+                WebSocketMessage webSocketMessage = ((WebSocketMessage) originatingRequest);
+
+                final Response<Object> response = ResponseImpl.response(-1, Timer.timer().now(), "SYSTEM", "ERROR", "CAN'T HANDLE CALL", originatingRequest, true);
+                final WebsSocketSender sender = webSocketMessage.getSender();
+                sender.send(encoder.encodeAsString(response));
+
+            }
+
+            return Collections.emptyList();
         }
 
 
@@ -193,24 +220,20 @@ public class ServiceServerImpl implements ServiceServer {
         try {
             webSocketMessage.getSender().send(responseAsText);
         } catch (Exception ex) {
-            logger.warn("websocket unable to send response");
+            logger.warn("websocket unable to send response", ex);
         }
     }
 
     private void handleResponseFromServiceToHttpResponse(Response<Object> response, HttpRequest originatingRequest) {
         final HttpRequest httpRequest = originatingRequest;
-        httpRequest.getResponse().response(200, "application/json", jsonMapper.toJson(response.body()));
-    }
 
-
-    protected void initServices(final Set<Object> services) {
-
-        for (Object service : services) {
-            if (debug) logger.debug("registering service: " + service.getClass().getName());
-            serviceBundle.addService(service);
-            this.addRestSupportFor(service.getClass(), serviceBundle.address());
+        if (response.wasErrors()) {
+            writeResponse(httpRequest.getResponse(), 500, "application/json", jsonMapper.toJson(response.body()), httpRequest.getHeaders());
+        } else {
+            writeResponse(httpRequest.getResponse(), 200, "application/json", jsonMapper.toJson(response.body()), httpRequest.getHeaders());
         }
     }
+
 
     @Override
     public void start() {
@@ -232,17 +255,6 @@ public class ServiceServerImpl implements ServiceServer {
 
     }
 
-    /**
-     * Run this server.
-     *
-     * @param services services
-     */
-    public void run(Object... services) {
-
-        initServices(Sets.set(services));
-
-        start();
-    }
 
     /**
      * Sets up the response queue listener so we can send responses
@@ -251,7 +263,6 @@ public class ServiceServerImpl implements ServiceServer {
     private void startResponseQueueListener() {
         serviceBundle.startReturnHandlerProcessor(createResponseQueueListener());
     }
-
 
     /**
      * Creates the queue listener for method call responses from the client bundle.
@@ -268,28 +279,12 @@ public class ServiceServerImpl implements ServiceServer {
             }
 
             @Override
-            public void empty() {
-
-
-            }
-
-            @Override
-            public void limit() {
-            }
-
-            @Override
-            public void shutdown() {
-
-            }
-
-            @Override
             public void idle() {
 
                 checkTimeoutsForRequests();
             }
         };
     }
-
 
     /**
      * Handle a response from the server.
@@ -327,7 +322,6 @@ public class ServiceServerImpl implements ServiceServer {
         }
     }
 
-
     /**
      * Register REST and webSocket support for a class and URI.
      *
@@ -358,7 +352,7 @@ public class ServiceServerImpl implements ServiceServer {
         } else {
 
 
-            registerMethodsToEndPoints(baseURI, "/" + Str.camelCaseLower(classMeta.name()),
+            registerMethodsToEndPoints(baseURI, "/" + Str.uncapitalize(classMeta.name()),
                     methods);
 
         }
@@ -393,13 +387,17 @@ public class ServiceServerImpl implements ServiceServer {
     private void registerMethodToEndPoint(final String baseURI, final String serviceURI, final MethodAccess method) {
         final AnnotationData data = method.annotation("RequestMapping");
         String methodURI;
-        RequestMethod httpMethod = RequestMethod.WEBSOCKET;
+        RequestMethod httpMethod = RequestMethod.WEB_SOCKET;
         String objectNameAddress;
 
 
         if (data != null) {
             final Map<String, Object> methodValuesForAnnotation = data.getValues();
             methodURI = extractMethodURI(methodValuesForAnnotation);
+
+            if (methodURI==null) {
+                methodURI = Str.add("/", method.name());
+            }
             httpMethod = extractHttpMethod(methodValuesForAnnotation);
 
 
@@ -425,6 +423,8 @@ public class ServiceServerImpl implements ServiceServer {
         switch (httpMethod) {
             case GET:
                 getMethodURIs.add(objectNameAddress);
+
+                getMethodURIs.add(objectNameAddress.toLowerCase());
                 if (voidReturn) {
                     getMethodURIsWithVoidReturn.add(objectNameAddress);
 
@@ -435,6 +435,7 @@ public class ServiceServerImpl implements ServiceServer {
                 break;
             case POST:
                 postMethodURIs.add(objectNameAddress);
+                postMethodURIs.add(objectNameAddress.toLowerCase());
                 if (voidReturn) {
                     postMethodURIsWithVoidReturn.add(objectNameAddress);
                     postMethodURIsWithVoidReturn.add(Str.add(baseURI, serviceURI, "/", method.name()));
@@ -475,6 +476,10 @@ public class ServiceServerImpl implements ServiceServer {
 
 
         String[] values = (String[]) methodValuesForAnnotation.get("value");
+
+        if (values == null || values.length ==0) {
+            return null;
+        }
         String methodURI = values[0];
         if (methodURI.contains("{")) {
             methodURI = StringScanner.split(methodURI, '{', 1)[0];
@@ -483,29 +488,16 @@ public class ServiceServerImpl implements ServiceServer {
         return methodURI;
     }
 
-
     /**
      * Add a request to the timeout queue. Server checks for timeouts when it is idle or when
      * the max outstanding outstandingRequests is met.
      *
      * @param request request.
      */
-    private void addRequestToCheckForTimeouts(final Request<Object> request) {
+    private boolean addRequestToCheckForTimeouts(final Request<Object> request) {
 
-        sendQueueOutstanding.send(request);
-
-//
-//
-//        if (!sendQueueOutstanding.send(request)) {
-//            checkTimeoutsForRequests();
-//
-//            while (!outstandingRequests.offer(request)) {
-//                Sys.sleep(100);
-//            }
-//        }
+        return outstandingRequests.offer(request);
     }
-
-    long lastTimeoutCheckTime = 0;
 
     /**
      *
@@ -519,13 +511,12 @@ public class ServiceServerImpl implements ServiceServer {
         }
 
 
-        final ReceiveQueue<Request<Object>> requestReceiveOutstandingQueue = outstandingRequests.receiveQueue();
 
 
         lastTimeoutCheckTime = now;
         long duration;
 
-        Request<Object> request = requestReceiveOutstandingQueue.poll();
+        Request<Object> request = outstandingRequests.poll();
 
         List<Request<Object>> notTimedOutRequests = new ArrayList<>();
 
@@ -539,24 +530,18 @@ public class ServiceServerImpl implements ServiceServer {
             } else {
                 notTimedOutRequests.add(request);
             }
-            request = requestReceiveOutstandingQueue.poll();
+            request = outstandingRequests.poll();
         }
 
 
         /* Add the outstandingRequests that have not timed out back to the queue. */
         if (notTimedOutRequests.size() > 0) {
-            final SendQueue<Request<Object>> requestSendOutstandingQueue = outstandingRequests.sendQueue();
+            outstandingRequests.addAll(notTimedOutRequests);
 
-
-            requestSendOutstandingQueue.sendBatch(notTimedOutRequests);
-            requestSendOutstandingQueue.flushSends();
         }
 
 
     }
-
-
-    int timedOut;
 
     /**
      * Handle a method timeout.
@@ -574,7 +559,6 @@ public class ServiceServerImpl implements ServiceServer {
                 httpResponse.response(408, "application/json", "\"timed out\"");
             } catch (Exception ex) {
                 logger.debug("Response not marked handled and it timed out, but could not be written " + request, ex);
-                puts(request);
 
             }
         } else if (request instanceof WebSocketMessage) {
@@ -651,6 +635,11 @@ public class ServiceServerImpl implements ServiceServer {
             this.addRestSupportFor(service.getClass(), serviceBundle.address());
         }
 
+    }
+
+    @Override
+    public void flush() {
+        this.serviceBundle.flush();
     }
 
 
