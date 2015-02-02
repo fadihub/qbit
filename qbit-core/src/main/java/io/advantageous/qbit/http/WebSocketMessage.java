@@ -12,13 +12,16 @@ public class WebSocketMessage implements Request<Object>{
 
     private final String uri;
     private final String message;
-    private final WebsSocketSender sender;
+    private final WebSocketSender sender;
     private final String remoteAddress;
 
     private final long messageId;
 
     private final long timestamp;
     private boolean handled;
+
+
+    private int handledCount;
 
 
     @Override
@@ -97,14 +100,26 @@ public class WebSocketMessage implements Request<Object>{
 
 
 
-    public WebSocketMessage(
-            final String uri, final String message, final String remoteAddress, final WebsSocketSender sender) {
+    public WebSocketMessage(final long id, final long timestamp,
+            final String uri, final String message, final String remoteAddress, final WebSocketSender sender) {
         this.uri = uri;
         this.message = message;
         this.sender = sender;
         this.remoteAddress = remoteAddress;
-        this.messageId = idGen.get().inc();
-        this.timestamp = io.advantageous.qbit.util.Timer.timer().now();
+
+        if (id <= 0) {
+            this.messageId = idGen.get().inc();
+        } else {
+            this.messageId = id;
+        }
+
+
+        if (id <= 0) {
+            this.timestamp = io.advantageous.qbit.util.Timer.timer().now();
+
+        } else {
+            this.timestamp = timestamp;
+        }
     }
 
     public String getUri() {
@@ -115,7 +130,7 @@ public class WebSocketMessage implements Request<Object>{
         return message;
     }
 
-    public WebsSocketSender getSender() {
+    public WebSocketSender getSender() {
         return sender;
     }
 
