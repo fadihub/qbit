@@ -1,3 +1,21 @@
+/*
+ * Copyright (c) 2015. Rick Hightower, Geoff Chandler
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *  		http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * QBit - The Microservice lib for Java : JSON, WebSocket, REST. Be The Web!
+ */
+
 package io.advantageous.qbit.service.impl;
 
 import io.advantageous.qbit.message.MethodCall;
@@ -60,32 +78,35 @@ public class CallbackManager {
     /**
      * Handles responses coming back from services.
      */
-    public void startReturnHandlerProcessor(final Queue<Response<Object>> responseQueue)
-     {
+    public void startReturnHandlerProcessor(final Queue<Response<Object>> responseQueue) {
 
         responseQueue.startListener(new ReceiveQueueListener<Response<Object>>() {
             @Override
             public void receive(Response<Object> response) {
-                final Callback<Object> handler = handlers.get(new HandlerKey(response.returnAddress(), response.id()));
-                if (response.wasErrors()) {
-                    if (response.body() instanceof Throwable) {
-                        logger.error("Service threw an exception address", response.address(),
-                                "\n return address", response.returnAddress(), "\n message id",
-                                response.id(), response.body());
-                        handler.onError(((Throwable) response.body()));
-                    } else {
-                        logger.error("Service threw an exception address", response.address(),
-                                "\n return address", response.returnAddress(), "\n message id",
-                                response.id());
-
-                        handler.onError(new Exception(response.body().toString()));
-                    }
-                } else {
-                    handler.accept(response.body());
-                }
+                handleResponse(response);
             }
 
         });
+    }
+
+    public void handleResponse(Response<Object> response) {
+        final Callback<Object> handler = handlers.get(new HandlerKey(response.returnAddress(), response.id()));
+        if (response.wasErrors()) {
+            if (response.body() instanceof Throwable) {
+                logger.error("Service threw an exception address", response.address(),
+                        "\n return address", response.returnAddress(), "\n message id",
+                        response.id(), response.body());
+                handler.onError(((Throwable) response.body()));
+            } else {
+                logger.error("Service threw an exception address", response.address(),
+                        "\n return address", response.returnAddress(), "\n message id",
+                        response.id());
+
+                handler.onError(new Exception(response.body().toString()));
+            }
+        } else {
+            handler.accept(response.body());
+        }
     }
 
 

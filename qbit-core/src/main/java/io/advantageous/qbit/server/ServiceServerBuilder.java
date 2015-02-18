@@ -1,8 +1,26 @@
+/*
+ * Copyright (c) 2015. Rick Hightower, Geoff Chandler
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *  		http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * QBit - The Microservice lib for Java : JSON, WebSocket, REST. Be The Web!
+ */
+
 package io.advantageous.qbit.server;
 
 import io.advantageous.qbit.GlobalConstants;
 import io.advantageous.qbit.QBit;
-import io.advantageous.qbit.http.HttpServer;
+import io.advantageous.qbit.http.server.HttpServer;
 import io.advantageous.qbit.json.JsonMapper;
 import io.advantageous.qbit.message.Request;
 import io.advantageous.qbit.queue.QueueBuilder;
@@ -11,31 +29,91 @@ import io.advantageous.qbit.service.ServiceBundle;
 import io.advantageous.qbit.service.impl.ServiceConstants;
 import io.advantageous.qbit.spi.ProtocolEncoder;
 import io.advantageous.qbit.spi.ProtocolParser;
+import io.advantageous.qbit.system.QBitSystemManager;
 import io.advantageous.qbit.transforms.Transformer;
 
+import static io.advantageous.qbit.http.server.HttpServerBuilder.httpServerBuilder;
+
 /**
- *
  * Allows for the programmatic construction of a service.
+ *
  * @author rhightower
- * Created by Richard on 11/14/14.
+ *         Created by Richard on 11/14/14.
  */
 
 public class ServiceServerBuilder {
 
-    private String host = "localhost";
+    private String host;
     private int port = 8080;
-    private boolean manageQueues = true;
+    private boolean manageQueues = false;
     private int pollTime = GlobalConstants.POLL_WAIT;
     private int requestBatchSize = GlobalConstants.BATCH_SIZE;
     private int flushInterval = 200;
     private String uri = "/services";
     private int numberOfOutstandingRequests = 1_000_000;
-
-    private int maxRequestBatches = 1_0000;
-
+    private int maxRequestBatches = 10_000;
     private int timeoutSeconds = 30;
     private boolean invokeDynamic = true;
+    private QueueBuilder requestQueueBuilder;
+    private QueueBuilder webSocketMessageQueueBuilder;
+    private QueueBuilder serviceBundleQueueBuilder;
+    private boolean eachServiceInItsOwnThread = true;
+    private HttpServer httpServer;
+    private QBitSystemManager qBitSystemManager;
+    /**
+     * Allows interception of method calls before they get sent to a client.
+     * This allows us to transform or reject method calls.
+     */
+    private BeforeMethodCall beforeMethodCall = ServiceConstants.NO_OP_BEFORE_METHOD_CALL;
+    /**
+     * Allows interception of method calls before they get transformed and sent to a client.
+     * This allows us to transform or reject method calls.
+     */
+    private BeforeMethodCall beforeMethodCallAfterTransform = ServiceConstants.NO_OP_BEFORE_METHOD_CALL;
+    /**
+     * Allows transformation of arguments, for example from JSON to Java objects.
+     */
+    private Transformer<Request, Object> argTransformer = ServiceConstants.NO_OP_ARG_TRANSFORM;
 
+    public static ServiceServerBuilder serviceServerBuilder() {
+        return new ServiceServerBuilder();
+    }
+
+    public QBitSystemManager getSystemManager() {
+        return qBitSystemManager;
+    }
+
+    public ServiceServerBuilder setSystemManager(QBitSystemManager qBitSystemManager) {
+        this.qBitSystemManager = qBitSystemManager;
+        return this;
+    }
+
+    public HttpServer getHttpServer() {
+        return httpServer;
+    }
+
+    public ServiceServerBuilder setHttpServer(HttpServer httpServer) {
+        this.httpServer = httpServer;
+        return this;
+    }
+
+    public QueueBuilder getRequestQueueBuilder() {
+        return requestQueueBuilder;
+    }
+
+    public ServiceServerBuilder setRequestQueueBuilder(QueueBuilder requestQueueBuilder) {
+        this.requestQueueBuilder = requestQueueBuilder;
+        return this;
+    }
+
+    public QueueBuilder getWebSocketMessageQueueBuilder() {
+        return webSocketMessageQueueBuilder;
+    }
+
+    public ServiceServerBuilder setWebSocketMessageQueueBuilder(QueueBuilder webSocketMessageQueueBuilder) {
+        this.webSocketMessageQueueBuilder = webSocketMessageQueueBuilder;
+        return this;
+    }
 
     public boolean isInvokeDynamic() {
         return invokeDynamic;
@@ -45,23 +123,6 @@ public class ServiceServerBuilder {
         this.invokeDynamic = invokeDynamic;
         return this;
     }
-    /**
-     * Allows interception of method calls before they get sent to a client.
-     * This allows us to transform or reject method calls.
-     */
-    private  BeforeMethodCall beforeMethodCall = ServiceConstants.NO_OP_BEFORE_METHOD_CALL;
-
-    /**
-     * Allows interception of method calls before they get transformed and sent to a client.
-     * This allows us to transform or reject method calls.
-     */
-    private  BeforeMethodCall beforeMethodCallAfterTransform = ServiceConstants.NO_OP_BEFORE_METHOD_CALL;
-
-
-    /**
-     * Allows transformation of arguments, for example from JSON to Java objects.
-     */
-    private Transformer<Request, Object> argTransformer = ServiceConstants.NO_OP_ARG_TRANSFORM;
 
     public int getMaxRequestBatches() {
         return maxRequestBatches;
@@ -72,8 +133,6 @@ public class ServiceServerBuilder {
         return this;
     }
 
-    private boolean eachServiceInItsOwnThread=true;
-
     public boolean isEachServiceInItsOwnThread() {
         return eachServiceInItsOwnThread;
     }
@@ -82,7 +141,6 @@ public class ServiceServerBuilder {
         this.eachServiceInItsOwnThread = eachServiceInItsOwnThread;
         return this;
     }
-
 
     public BeforeMethodCall getBeforeMethodCall() {
         return beforeMethodCall;
@@ -95,13 +153,11 @@ public class ServiceServerBuilder {
 
     public BeforeMethodCall getBeforeMethodCallAfterTransform() {
         return beforeMethodCallAfterTransform;
-
     }
 
     public ServiceServerBuilder setBeforeMethodCallAfterTransform(BeforeMethodCall beforeMethodCallAfterTransform) {
         this.beforeMethodCallAfterTransform = beforeMethodCallAfterTransform;
         return this;
-
     }
 
     public Transformer<Request, Object> getArgTransformer() {
@@ -140,7 +196,6 @@ public class ServiceServerBuilder {
         this.timeoutSeconds = timeoutSeconds;
         return this;
     }
-
 
     public String getHost() {
         return host;
@@ -196,45 +251,56 @@ public class ServiceServerBuilder {
         return this;
     }
 
-
-
-    QueueBuilder queueBuilder;
-
-    public QueueBuilder getQueueBuilder() {
-        return queueBuilder;
+    public QueueBuilder getServiceBundleQueueBuilder() {
+        return serviceBundleQueueBuilder;
     }
 
-    public ServiceServerBuilder setQueueBuilder(QueueBuilder queueBuilder) {
-        this.queueBuilder = queueBuilder;
+    public ServiceServerBuilder setServiceBundleQueueBuilder(QueueBuilder serviceBundleQueueBuilder) {
+        this.serviceBundleQueueBuilder = serviceBundleQueueBuilder;
         return this;
     }
 
     public ServiceServer build() {
-        final HttpServer httpServer = QBit.factory().createHttpServer(host, port, manageQueues, pollTime, requestBatchSize, flushInterval, maxRequestBatches);
-        final JsonMapper jsonMapper = QBit.factory().createJsonMapper();
-        final ProtocolEncoder encoder = QBit.factory().createEncoder();
 
-
-        if (queueBuilder==null) {
-
-            queueBuilder = new QueueBuilder().setBatchSize(this.getRequestBatchSize()).setPollWait(this.getPollTime());
-
+        if (httpServer == null) {
+            httpServer = createHttpServer();
         }
 
-
-
+        final JsonMapper jsonMapper = QBit.factory().createJsonMapper();
+        final ProtocolEncoder encoder = QBit.factory().createEncoder();
+        if (serviceBundleQueueBuilder == null) {
+            serviceBundleQueueBuilder = new QueueBuilder().setBatchSize(this.getRequestBatchSize()).setPollWait(this.getPollTime());
+        }
         final ServiceBundle serviceBundle = QBit.factory().createServiceBundle(uri,
-                queueBuilder,
+                serviceBundleQueueBuilder,
                 QBit.factory(),
                 eachServiceInItsOwnThread, this.getBeforeMethodCall(),
                 this.getBeforeMethodCallAfterTransform(),
-                this.getArgTransformer(), true);
-
+                this.getArgTransformer(), true, getSystemManager());
         final ProtocolParser parser = QBit.factory().createProtocolParser();
+        final ServiceServer serviceServer = QBit.factory().createServiceServer(httpServer,
+                encoder, parser, serviceBundle, jsonMapper, this.getTimeoutSeconds(),
+                this.getNumberOfOutstandingRequests(), this.getRequestBatchSize(),
+                this.getFlushInterval(), this.getSystemManager());
 
 
-        final ServiceServer serviceServer = QBit.factory().createServiceServer(httpServer, encoder, parser, serviceBundle, jsonMapper, timeoutSeconds, numberOfOutstandingRequests, requestBatchSize);
+        if (serviceServer != null && qBitSystemManager != null) {
+            qBitSystemManager.registerServer(serviceServer);
+        }
         return serviceServer;
+    }
 
+    private HttpServer createHttpServer() {
+
+        return httpServerBuilder().setPort(port)
+                .setHost(host)
+                .setManageQueues(this.isManageQueues())
+                .setFlushInterval(this.getFlushInterval())
+                .setPollTime(this.getPollTime())
+                .setRequestBatchSize(this.getRequestBatchSize())
+                .setMaxRequestBatches(this.getMaxRequestBatches())
+                .setRequestQueueBuilder(this.getRequestQueueBuilder())
+                .setSystemManager(getSystemManager())
+                .setWebSocketMessageQueueBuilder(this.getWebSocketMessageQueueBuilder()).build();
     }
 }

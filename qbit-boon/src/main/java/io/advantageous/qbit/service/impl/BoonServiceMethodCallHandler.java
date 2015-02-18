@@ -1,17 +1,37 @@
+/*
+ * Copyright (c) 2015. Rick Hightower, Geoff Chandler
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *  		http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * QBit - The Microservice lib for Java : JSON, WebSocket, REST. Be The Web!
+ */
+
 package io.advantageous.qbit.service.impl;
 
 import io.advantageous.qbit.annotation.RequestMethod;
 import io.advantageous.qbit.bindings.ArgParamBinding;
 import io.advantageous.qbit.bindings.MethodBinding;
 import io.advantageous.qbit.bindings.RequestParamBinding;
-import io.advantageous.qbit.http.HttpRequest;
+import io.advantageous.qbit.http.request.HttpRequest;
+import io.advantageous.qbit.message.Event;
 import io.advantageous.qbit.message.MethodCall;
 import io.advantageous.qbit.message.Request;
 import io.advantageous.qbit.message.Response;
+import io.advantageous.qbit.message.impl.ResponseImpl;
+import io.advantageous.qbit.queue.QueueCallBackHandler;
 import io.advantageous.qbit.queue.SendQueue;
 import io.advantageous.qbit.service.Callback;
 import io.advantageous.qbit.service.ServiceMethodHandler;
-import io.advantageous.qbit.message.impl.ResponseImpl;
 import io.advantageous.qbit.util.MultiMap;
 import org.boon.Lists;
 import org.boon.Pair;
@@ -27,23 +47,21 @@ import org.boon.primitive.Arry;
 
 import java.lang.reflect.InvocationTargetException;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
+import static io.advantageous.qbit.annotation.AnnotationUtils.getListenAnnotation;
 import static org.boon.Exceptions.die;
 
 /**
  * Created by Richard on 9/8/14.
+ *
  * @author Rick Hightower
  */
 public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
+    private final boolean invokeDynamic;
     private ClassMeta<Class<?>> classMeta;
     private Object service;
-    private MethodAccess queueEmpty;
-    private MethodAccess queueLimit;
-    private MethodAccess queueShutdown;
-    private MethodAccess queueIdle;
-
-    private final boolean invokeDynamic;
-
+    private QueueCallBackHandler queueCallBackHandler;
     private String address = "";
 
     private String name = "";
@@ -52,6 +70,7 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
     private Map<String, Map<String, Pair<MethodBinding, MethodAccess>>> methodMap = new LinkedHashMap<>();
 
     private SendQueue<Response<Object>> responseSendQueue;
+    private Map<String, MethodAccess> eventMap = new ConcurrentHashMap<>();
 
     public BoonServiceMethodCallHandler(final boolean invokeDynamic) {
         this.invokeDynamic = invokeDynamic;
@@ -80,9 +99,6 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
         String address = methodCall.address();
 
 
-
-
-
         final Map<String, Pair<MethodBinding, MethodAccess>> mappings = methodMap.get(address);
 
 
@@ -90,16 +106,15 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
 
         Pair<MethodBinding, MethodAccess> binding = null;
 
-        if (mappings!=null && request instanceof HttpRequest) {
+        if (mappings != null && request instanceof HttpRequest) {
             HttpRequest httpRequest = ((HttpRequest) request);
             final String method = httpRequest.getMethod();
             binding = mappings.get(method);
         }
 
-        if (mappings!=null && mappings.size() == 1 && binding == null) {
+        if (mappings != null && mappings.size() == 1 && binding == null) {
             binding = mappings.values().iterator().next();
         }
-
 
 
         if (binding != null) {
@@ -119,7 +134,6 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
         }
 
 
-
         final Request<Object> request = methodCall.originatingRequest();
 
         Pair<MethodBinding, MethodAccess> binding = null;
@@ -128,10 +142,9 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
             HttpRequest httpRequest = ((HttpRequest) request);
             final String method = httpRequest.getMethod();
             binding = mappings.get(method);
-        } else if (mappings!=null && mappings.size() == 1) {
+        } else if (mappings != null && mappings.size() == 1) {
             binding = mappings.values().iterator().next();
         }
-
 
 
         final String[] split = StringScanner.split(methodCall.address(), '/');
@@ -157,9 +170,7 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
                     die("Parameter position is more than param length of method", methodAccess);
                 } else {
                     String paramAtPos = split[uriPosition];
-                    Object arg = Conversions.coerce(paramEnumTypes.get(methodParamPosition),
-                            parameterTypes[methodParamPosition], paramAtPos
-                    );
+                    Object arg = Conversions.coerce(paramEnumTypes.get(methodParamPosition), parameterTypes[methodParamPosition], paramAtPos);
                     args.set(methodParamPosition, arg);
                 }
             } else {
@@ -171,8 +182,7 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
                     final List<AnnotationData> paramsAnnotationData = annotationDataForParams.get(index);
                     String name = "";
                     for (AnnotationData paramAnnotation : paramsAnnotationData) {
-                        if (paramAnnotation.getName().equalsIgnoreCase("name")
-                                || paramAnnotation.getName().equalsIgnoreCase("PathVariable")) {
+                        if (paramAnnotation.getName().equalsIgnoreCase("name") || paramAnnotation.getName().equalsIgnoreCase("PathVariable")) {
                             name = (String) paramAnnotation.getValues().get("value");
                             if (!Str.isEmpty(name)) {
                                 break;
@@ -181,9 +191,7 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
                     }
                     if (paramName.equals(name)) {
 
-                        Object arg = Conversions.coerce(paramEnumTypes.get(index),
-                                parameterTypes[index],
-                                split[index]);
+                        Object arg = Conversions.coerce(paramEnumTypes.get(index), parameterTypes[index], split[index]);
                         args.set(index, arg);
                     }
                 }
@@ -192,8 +200,7 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
         }
 
 
-        Object returnValue =
-                methodAccess.invokeDynamicObject(service, args);
+        Object returnValue = methodAccess.invokeDynamicObject(service, args);
         return response(methodAccess, methodCall, returnValue);
 
 
@@ -219,7 +226,9 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
     }
 
     private Response<Object> mapArgsAsyncHandlersAndInvoke(MethodCall<Object> methodCall, MethodAccess method) {
-        if (method.parameterTypes().length == 0  ) {
+
+
+        if (method.parameterTypes().length == 0) {
 
             Object returnValue = method.invokeDynamicObject(service, null);
             return response(method, methodCall, returnValue);
@@ -241,35 +250,100 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
 
         }
 
+        boolean hasHandlers = hasHandlers(methodCall);
+
+        hasHandlers = hasHandlers(method) || hasHandlers;
+
         Object returnValue;
 
 
-        Object body = methodCall.body();
-        List<Object> argsList = prepareArgumentList(methodCall,
-                method.parameterTypes());
+        if (hasHandlers) {
+            Object body = methodCall.body();
+            List<Object> argsList = prepareArgumentList(methodCall, method.parameterTypes());
 
 
+            if (body instanceof List || body instanceof Object[]) {
 
-        if (body instanceof List || body instanceof Object[]) {
+
+                extactHandlersFromArgumentList(method, body, argsList);
+
+            } else {
+                if (argsList.size() == 1 && !(argsList.get(0) instanceof Callback)) {
+                    argsList.set(0, body);
+                }
+            }
 
 
-            extactHandlersFromArgumentList(method, body, argsList);
+            if (invokeDynamic) {
+                returnValue = method.invokeDynamicObject(service, argsList);
+            } else {
+                returnValue = method.invoke(service, argsList.toArray(new Object[argsList.size()]));
+            }
 
         } else {
-            if (argsList.size() == 1 && !(argsList.get(0) instanceof Callback)) {
-                argsList.set(0, body);
+
+            if (invokeDynamic) {
+
+                if (methodCall.body() instanceof List) {
+                    final List argsList = (List) methodCall.body();
+                    returnValue = method.invokeDynamic(service, argsList.toArray(new Object[argsList.size()]));
+                } else if (methodCall.body() instanceof Object[]) {
+                    final Object[] argsList = (Object[]) methodCall.body();
+                    returnValue = method.invokeDynamic(service, argsList);
+                } else {
+                    returnValue = method.invokeDynamic(service, methodCall.body());
+                }
+            } else {
+                if (methodCall.body() instanceof List) {
+                    final List argsList = (List) methodCall.body();
+                    returnValue = method.invoke(service, argsList.toArray(new Object[argsList.size()]));
+                } else if (methodCall.body() instanceof Object[]) {
+                    final Object[] argsList = (Object[]) methodCall.body();
+                    returnValue = method.invoke(service, argsList);
+                } else {
+                    returnValue = method.invoke(service, methodCall.body());
+                }
             }
         }
 
 
-        if (invokeDynamic) {
-            returnValue =
-                    method.invokeDynamicObject(service, argsList);
-        } else {
-            returnValue = method.invoke(service, argsList.toArray(new Object[argsList.size()]));
-        }
-
         return response(method, methodCall, returnValue);
+    }
+
+
+    private boolean hasHandlers(MethodAccess method) {
+
+        for (Class<?> paramType : method.parameterTypes()) {
+            if (paramType == Callback.class) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean hasHandlers(MethodCall<Object> methodCall) {
+        if (methodCall.body() instanceof List) {
+
+            final List body = (List) methodCall.body();
+            for (Object item : body) {
+                if (item instanceof Callback) {
+                    return true;
+                }
+            }
+            return false;
+        } else if (methodCall.body() instanceof Object[]) {
+
+            final Object[] body = (Object[]) methodCall.body();
+            for (Object item : body) {
+                if (item instanceof Callback) {
+                    return true;
+                }
+            }
+            return false;
+
+        } else {
+            return methodCall.body() instanceof Callback;
+        }
     }
 
     private void extactHandlersFromArgumentList(MethodAccess method, Object body, List<Object> argsList) {
@@ -293,7 +367,6 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
         }
 
 
-
         for (int index = 0, arrayIndex = 0; index < argsList.size(); index++) {
 
             final Object o = argsList.get(index);
@@ -302,7 +375,7 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
             }
 
 
-            if(arrayIndex >=array.length) {
+            if (arrayIndex >= array.length) {
                 break;
             }
 
@@ -327,9 +400,10 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
         final Iterator<Object> iterator = new Iterator<Object>() {
 
             int index = 0;
+
             @Override
             public boolean hasNext() {
-                if(index>=theArray.length) {
+                if (index >= theArray.length) {
                     return false;
                 } else {
                     return true;
@@ -385,23 +459,15 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
         }
     }
 
-    private Response<Object> response(MethodAccess methodAccess,
-                                      MethodCall<Object> methodCall, Object returnValue) {
+    private Response<Object> response(MethodAccess methodAccess, MethodCall<Object> methodCall, Object returnValue) {
 
         if (methodAccess.returnType() == void.class || methodAccess.returnType() == Void.class) {
             return ServiceConstants.VOID;
         }
-        return ResponseImpl.response(
-                methodCall.id(),
-                methodCall.timestamp(),
-                methodCall.name(),
-                methodCall.returnAddress(),
-                returnValue, methodCall);
+        return ResponseImpl.response(methodCall.id(), methodCall.timestamp(), methodCall.name(), methodCall.returnAddress(), returnValue, methodCall);
     }
 
-    private Object bodyFromRequestParams(MethodAccess method,
-                                         MethodCall<Object> methodCall,
-                                         MethodBinding binding) {
+    private Object bodyFromRequestParams(MethodAccess method, MethodCall<Object> methodCall, MethodBinding binding) {
         final MultiMap<String, String> params = methodCall.params();
 
         final Class<?>[] parameterTypes = method.parameterTypes();
@@ -415,9 +481,7 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
             RequestParamBinding paramBinding = binding.requestParamBinding(index);
             if (paramBinding == null) {
                 if (methodBodyUsed) {
-                    die("Method body was already used for methodCall\n",
-                            methodCall, "\nFor method binding\n", binding,
-                            "\nFor method\n", method);
+                    die("Method body was already used for methodCall\n", methodCall, "\nFor method binding\n", binding, "\nFor method\n", method);
                 }
                 methodBodyUsed = true;
                 if (methodCall.body() instanceof List) {
@@ -438,10 +502,7 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
             } else {
                 if (paramBinding.isRequired()) {
                     if (!params.containsKey(paramBinding.getName())) {
-                        die("Method call missing required parameter",
-                                "\nParam Name", paramBinding.getName(), "\nMethod Call",
-                                methodCall, "\nFor method binding\n", binding,
-                                "\nFor method\n", method);
+                        die("Method call missing required parameter", "\nParam Name", paramBinding.getName(), "\nMethod Call", methodCall, "\nFor method binding\n", binding, "\nFor method\n", method);
 
                     }
                 }
@@ -468,26 +529,6 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
         return argsList;
     }
 
-    static class BoonCallBackWrapper implements Callback<Object> {
-        final SendQueue<Response<Object>> responseSendQueue;
-        final MethodCall<Object> methodCall;
-
-        BoonCallBackWrapper(final SendQueue<Response<Object>> responseSendQueue, final MethodCall<Object> methodCall) {
-
-            this.responseSendQueue = responseSendQueue;
-            this.methodCall = methodCall;
-        }
-
-        @Override
-        public void accept(Object result) {
-            /* This wants to be periodic flush or flush based on size but this is a stop gap make something work for now.
-             */
-            responseSendQueue.sendAndFlush(
-                    ResponseImpl.response(methodCall, result)
-            );
-        }
-    }
-
     private Callback<Object> createCallBackHandler(final MethodCall<Object> methodCall) {
 
         return new BoonCallBackWrapper(responseSendQueue, methodCall);
@@ -499,7 +540,6 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
         return mapArgsAsyncHandlersAndInvoke(methodCall, method);
     }
 
-
     public void init(Object service, String rootAddress, String serviceAddress) {
 
         this.service = service;
@@ -509,14 +549,14 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
         }
         if (Str.isEmpty(serviceAddress)) {
 
-            serviceAddress =  Str.camelCaseLower(classMeta.name());
+            serviceAddress = Str.camelCaseLower(classMeta.name());
         }
 
         this.name = readNameFromAnnotation(classMeta);
 
         if (Str.isEmpty(name)) {
 
-            this.name =  Str.uncapitalize(classMeta.name());
+            this.name = Str.uncapitalize(classMeta.name());
 
         }
 
@@ -542,6 +582,17 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
         }
 
 
+        final Iterable<MethodAccess> methods = classMeta.methods();
+
+        for (MethodAccess methodAccess : methods) {
+            final AnnotationData listen = getListenAnnotation(methodAccess);
+            if (listen == null) {
+                continue;
+            }
+            String channel = listen.getValues().get("value").toString();
+            eventMap.put(channel, methodAccess);
+        }
+
         readMethodMetaData();
 
         initQueueHandlerMethods();
@@ -549,10 +600,13 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
     }
 
     private void initQueueHandlerMethods() {
-        queueLimit = classMeta.method("queueLimit");
-        queueEmpty = classMeta.method("queueEmpty");
-        queueShutdown = classMeta.method("queueShutdown");
-        queueIdle = classMeta.method("queueIdle");
+
+        this.queueCallBackHandler = QueueCallbackHandlerFactory.createQueueCallbackHandler(service);
+
+    }
+
+    public void queueStartBatch() {
+        queueCallBackHandler.queueStartBatch();
     }
 
     private void readMethodMetaData() {
@@ -573,9 +627,7 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
 
     private void registerMethod(MethodAccess methodAccess) {
 
-        if (!methodAccess.hasAnnotation("RequestMapping")
-                || !methodAccess.hasAnnotation("ServiceMethod")
-                ) {
+        if (!methodAccess.hasAnnotation("RequestMapping") || !methodAccess.hasAnnotation("ServiceMethod")) {
 
 
             String methodAddress = readAddressFromAnnotation(methodAccess);
@@ -593,10 +645,8 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
 
 
         doRegisterMethodUnderURI("GET", methodAccess, methodAccess.name());
-        doRegisterMethodUnderURI("GET", methodAccess,
-                methodAccess.name().toLowerCase());
-        doRegisterMethodUnderURI("GET", methodAccess,
-                methodAccess.name().toUpperCase());
+        doRegisterMethodUnderURI("GET", methodAccess, methodAccess.name().toLowerCase());
+        doRegisterMethodUnderURI("GET", methodAccess, methodAccess.name().toUpperCase());
 
 
     }
@@ -608,8 +658,7 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
         }
 
 
-        MethodBinding methodBinding =
-                new MethodBinding(httpMethod, methodAccess.name(), Str.join('/', address, methodAddress));
+        MethodBinding methodBinding = new MethodBinding(httpMethod, methodAccess.name(), Str.join('/', address, methodAddress));
 
 
         final List<List<AnnotationData>> annotationDataForParams = methodAccess.annotationDataForParams();
@@ -645,7 +694,6 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
 
     }
 
-
     @Override
     public TreeSet<String> addresses() {
         return addresses;
@@ -654,6 +702,50 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
     @Override
     public void initQueue(SendQueue<Response<Object>> responseSendQueue) {
         this.responseSendQueue = responseSendQueue;
+    }
+
+    @Override
+    public void queueInit() {
+
+        queueCallBackHandler.queueInit();
+
+    }
+
+    @Override
+    public void handleEvent(Event<Object> event) {
+
+        MethodAccess methodAccess = eventMap.get(event.topic());
+
+
+        if (invokeDynamic) {
+            final Object body = event.body();
+
+            if (body instanceof List) {
+                List list = ((List) body);
+                methodAccess.invokeDynamic(service, list.toArray(new Object[list.size()]));
+
+            } else if (body instanceof Object[]) {
+                final Object[] array = (Object[]) body;
+                methodAccess.invokeDynamic(service, array);
+
+            } else {
+                methodAccess.invokeDynamicObject(service, body);
+            }
+        } else {
+            final Object body = event.body();
+
+            if (body instanceof List) {
+                List list = ((List) body);
+                methodAccess.invoke(service, list.toArray(new Object[list.size()]));
+
+            } else if (body instanceof Object[]) {
+                final Object[] array = (Object[]) body;
+                methodAccess.invoke(service, array);
+
+            } else {
+                methodAccess.invoke(service, body);
+            }
+        }
     }
 
     private String readAddressFromAnnotation(Annotated annotated) {
@@ -675,7 +767,6 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
         return address == null ? "" : address;
     }
 
-
     private String readHttpMethod(Annotated annotated) {
         String method = getHttpMethod("RequestMapping", annotated);
         return method == null || method.isEmpty() ? "GET" : method;
@@ -696,7 +787,6 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
         return name == null ? "" : name;
     }
 
-
     private String getHttpMethod(String name, Annotated annotated) {
         AnnotationData requestMapping = annotated.annotation(name);
 
@@ -709,13 +799,14 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
                 if (values.length > 0 && values[0] != null && !values[0].isEmpty()) {
                     return values[0];
                 }
-            }if (value instanceof RequestMethod[]) {
+            }
+            if (value instanceof RequestMethod[]) {
 
                 RequestMethod[] values = (RequestMethod[]) value;
-                if (values.length > 0 && values[0] != null ) {
+                if (values.length > 0 && values[0] != null) {
                     return values[0].toString();
                 }
-            }  else {
+            } else {
 
                 return value.toString();
             }
@@ -744,7 +835,6 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
         return null;
     }
 
-
     @Override
     public String address() {
         return address;
@@ -755,7 +845,6 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
         return name;
     }
 
-
     @Override
     public void receive(MethodCall<Object> item) {
         throw new UnsupportedOperationException();
@@ -763,33 +852,44 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
 
     @Override
     public void empty() {
-        if (queueEmpty != null) {
-            queueEmpty.invoke(service);
-        }
+
+        queueCallBackHandler.queueEmpty();
     }
 
     @Override
     public void limit() {
-        if (queueLimit != null) {
-            queueLimit.invoke(service);
-        }
+        queueCallBackHandler.queueLimit();
     }
 
     @Override
     public void shutdown() {
-        if (queueShutdown != null) {
-            queueShutdown.invoke(service);
-        }
+        queueCallBackHandler.queueShutdown();
     }
 
     @Override
     public void idle() {
-        if (queueIdle != null) {
-            queueIdle.invoke(service);
-        }
+        queueCallBackHandler.queueIdle();
     }
 
     public Map<String, Map<String, Pair<MethodBinding, MethodAccess>>> methodMap() {
         return methodMap;
+    }
+
+    static class BoonCallBackWrapper implements Callback<Object> {
+        final SendQueue<Response<Object>> responseSendQueue;
+        final MethodCall<Object> methodCall;
+
+        BoonCallBackWrapper(final SendQueue<Response<Object>> responseSendQueue, final MethodCall<Object> methodCall) {
+
+            this.responseSendQueue = responseSendQueue;
+            this.methodCall = methodCall;
+        }
+
+        @Override
+        public void accept(Object result) {
+            /* This wants to be periodic flush or flush based on size but this is a stop gap make something work for now.
+             */
+            responseSendQueue.sendAndFlush(ResponseImpl.response(methodCall, result));
+        }
     }
 }

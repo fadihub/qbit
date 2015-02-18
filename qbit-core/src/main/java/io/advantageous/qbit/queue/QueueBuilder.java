@@ -1,27 +1,47 @@
+/*
+ * Copyright (c) 2015. Rick Hightower, Geoff Chandler
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *  		http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * QBit - The Microservice lib for Java : JSON, WebSocket, REST. Be The Web!
+ */
+
 package io.advantageous.qbit.queue;
 
+import io.advantageous.qbit.GlobalConstants;
 import io.advantageous.qbit.queue.impl.BasicQueue;
 
 import java.util.concurrent.*;
 
 /**
- *
  * Allows for the programmatic construction of a queue.
- *
+ * <p>
  * Created by rhightower on 12/14/14.
  */
-public class QueueBuilder implements Cloneable{
+public class QueueBuilder implements Cloneable {
 
-    public static QueueBuilder queueBuilder() {return new QueueBuilder();}
-    private int batchSize = 500;
-    private int pollWait = 5;
-    private int size = 1_000_000;
+    private int batchSize = GlobalConstants.BATCH_SIZE;
+    private int pollWait = GlobalConstants.POLL_WAIT;
+    private int size = GlobalConstants.NUM_BATCHES;
     private int checkEvery = 100;
-
+    private boolean tryTransfer = false;
     private String name;
     private Class<? extends BlockingQueue> queueClass = ArrayBlockingQueue.class;
+    private boolean checkIfBusy = false;
 
-    private boolean tryTransfer=false;
+    public static QueueBuilder queueBuilder() {
+        return new QueueBuilder();
+    }
 
     @Override
     protected Object clone() throws CloneNotSupportedException {
@@ -34,7 +54,25 @@ public class QueueBuilder implements Cloneable{
 
     public QueueBuilder setCheckEvery(int checkEvery) {
         this.checkEvery = checkEvery;
+        this.checkIfBusy = true;
         return this;
+    }
+
+    public boolean isTryTransfer() {
+        return tryTransfer;
+    }
+
+    public QueueBuilder setTryTransfer(boolean tryTransfer) {
+        this.tryTransfer = tryTransfer;
+        return this;
+    }
+
+    public Class<? extends BlockingQueue> getQueueClass() {
+        return queueClass;
+    }
+
+    public void setQueueClass(Class<? extends BlockingQueue> queueClass) {
+        this.queueClass = queueClass;
     }
 
     public QueueBuilder setLinkedBlockingQueue() {
@@ -43,8 +81,8 @@ public class QueueBuilder implements Cloneable{
     }
 
     public QueueBuilder setArrayBlockingQueue() {
-        if (size==-1) {
-            size = 1_000_000;
+        if (size == -1) {
+            size = 100_000;
         }
 
         queueClass = ArrayBlockingQueue.class;
@@ -68,12 +106,12 @@ public class QueueBuilder implements Cloneable{
         return this;
     }
 
-    public boolean isTryTransfer() {
-        return tryTransfer;
+    public boolean isCheckIfBusy() {
+        return checkIfBusy;
     }
 
-    public QueueBuilder setTryTransfer(boolean tryTransfer) {
-        this.tryTransfer = tryTransfer;
+    public QueueBuilder setCheckIfBusy(boolean checkIfBusy) {
+        this.checkIfBusy = checkIfBusy;
         return this;
     }
 
@@ -107,11 +145,9 @@ public class QueueBuilder implements Cloneable{
     }
 
 
-
-
     public <T> Queue<T> build() {
         return new BasicQueue<>(this.getName(), this.getPollWait(), TimeUnit.MILLISECONDS, this.getBatchSize(),
-                this.queueClass, this.isTryTransfer(), this.getSize(), this.getCheckEvery());
+                this.queueClass, this.isCheckIfBusy(), this.getSize(), this.getCheckEvery(), this.isTryTransfer());
     }
 
 }

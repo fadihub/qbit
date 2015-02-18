@@ -1,9 +1,29 @@
+/*
+ * Copyright (c) 2015. Rick Hightower, Geoff Chandler
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *  		http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * QBit - The Microservice lib for Java : JSON, WebSocket, REST. Be The Web!
+ */
+
 package io.advantageous.qbit.service.impl;
 
 import io.advantageous.qbit.client.ClientProxy;
+import io.advantageous.qbit.events.EventManager;
 import io.advantageous.qbit.message.*;
 import io.advantageous.qbit.queue.*;
 import io.advantageous.qbit.service.*;
+import io.advantageous.qbit.system.QBitSystemManager;
 import io.advantageous.qbit.transforms.NoOpResponseTransformer;
 import io.advantageous.qbit.transforms.Transformer;
 import io.advantageous.qbit.util.MultiMap;
@@ -18,40 +38,34 @@ import java.lang.reflect.Proxy;
 import java.util.Collection;
 import java.util.concurrent.locks.ReentrantLock;
 
+import static io.advantageous.qbit.QBit.factory;
+import static io.advantageous.qbit.service.ServiceContext.serviceContext;
+
 
 public class ServiceImpl implements Service {
 
+
+    private static ThreadLocal<Service> serviceThreadLocal = new ThreadLocal<>();
+    private final QBitSystemManager systemManager;
     private final Logger logger = LoggerFactory.getLogger(ServiceImpl.class);
     private final boolean debug = logger.isDebugEnabled();
-
     private final Object service;
-    private ServiceMethodHandler serviceMethodHandler;
-
-
-    private BeforeMethodCall beforeMethodCall = ServiceConstants.NO_OP_BEFORE_METHOD_CALL;
-
-    private BeforeMethodCall beforeMethodCallAfterTransform = ServiceConstants.NO_OP_BEFORE_METHOD_CALL;
-
-    private AfterMethodCall afterMethodCall = new NoOpAfterMethodCall();
-
-    private AfterMethodCall afterMethodCallAfterTransform = new NoOpAfterMethodCall();
-
-    private ReceiveQueueListener<MethodCall<Object>> inputQueueListener = new NoOpInputMethodCallQueueListener();
-
     private final Queue<Response<Object>> responseQueue;
-
     private final Queue<MethodCall<Object>> requestQueue;
-
+    private final Queue<Event<Object>> eventQueue;
+    private final QueueBuilder queueBuilder;
+    private final boolean handleCallbacks;
+    protected ReentrantLock responseLock = new ReentrantLock();
+    protected volatile long lastResponseFlushTime = Timer.timer().now();
+    private ServiceMethodHandler serviceMethodHandler;
+    private BeforeMethodCall beforeMethodCall = ServiceConstants.NO_OP_BEFORE_METHOD_CALL;
+    private BeforeMethodCall beforeMethodCallAfterTransform = ServiceConstants.NO_OP_BEFORE_METHOD_CALL;
+    private AfterMethodCall afterMethodCall = new NoOpAfterMethodCall();
+    private AfterMethodCall afterMethodCallAfterTransform = new NoOpAfterMethodCall();
+    private ReceiveQueueListener<MethodCall<Object>> inputQueueListener = new NoOpInputMethodCallQueueListener();
     private Transformer<Request, Object> requestObjectTransformer = ServiceConstants.NO_OP_ARG_TRANSFORM;
-
     private Transformer<Response<Object>, Response> responseObjectTransformer = new NoOpResponseTransformer();
-
-
     private SendQueue<Response<Object>> responseSendQueue;
-
-    final QueueBuilder queueBuilder;
-
-
     private CallbackManager callbackManager;
 
 
@@ -61,45 +75,57 @@ public class ServiceImpl implements Service {
                        final QueueBuilder queueBuilder,
                        final ServiceMethodHandler serviceMethodHandler,
                        final Queue<Response<Object>> responseQueue,
-                       final boolean async) {
+                       final boolean async,
+                       final boolean handleCallbacks, final QBitSystemManager systemManager) {
 
-
-
+        this.systemManager = systemManager;
+        this.handleCallbacks = handleCallbacks;
         this.service = service;
         this.serviceMethodHandler = serviceMethodHandler;
-
         serviceMethodHandler.init(service, rootAddress, serviceAddress);
-
-
-
-        if (queueBuilder==null) {
+        if (queueBuilder == null) {
             this.queueBuilder = new QueueBuilder();
         } else {
             this.queueBuilder = BeanUtils.copy(queueBuilder);
         }
-
-
-
         if (responseQueue == null) {
-
             if (debug) {
                 logger.debug("RESPONSE QUEUE WAS NULL CREATING ONE");
             }
-
             this.responseQueue = this.queueBuilder.setName("Response Queue  " + serviceMethodHandler.address()).build();
-
         } else {
             this.responseQueue = responseQueue;
         }
 
-        responseSendQueue = this.responseQueue.sendQueue();
 
+        eventQueue = this.queueBuilder.setName("Event Queue" + serviceMethodHandler.address()).build();
+        requestQueue = initRequestQueue(serviceMethodHandler, async);
+        responseSendQueue = this.responseQueue.sendQueue();
         serviceMethodHandler.initQueue(responseSendQueue);
 
+    }
 
+    public static Service currentService() {
+        return serviceThreadLocal.get();
+    }
+
+
+    @Override
+    public Service start() {
+        start(serviceMethodHandler, true);
+        return this;
+    }
+
+    public Service start(boolean joinEventManager) {
+        start(serviceMethodHandler, joinEventManager);
+        return this;
+    }
+
+
+    private Queue<MethodCall<Object>> initRequestQueue(final ServiceMethodHandler serviceMethodHandler, boolean async) {
+        Queue<MethodCall<Object>> requestQueue;
         if (async) {
             requestQueue = this.queueBuilder.setName("Send Queue  " + serviceMethodHandler.address()).build();
-
         } else {
             requestQueue = new Queue<MethodCall<Object>>() {
                 @Override
@@ -174,21 +200,18 @@ public class ServiceImpl implements Service {
                 }
             };
         }
-
-        if (async) {
-            start(serviceMethodHandler);
-        }
-
-
+        return requestQueue;
     }
 
 
-
     public Service startCallBackHandler() {
-        callbackManager = new CallbackManager();
-        callbackManager.startReturnHandlerProcessor(this.responseQueue);
-        return this;
-
+        if (!handleCallbacks) {
+            callbackManager = new CallbackManager();
+            callbackManager.startReturnHandlerProcessor(this.responseQueue);
+            return this;
+        } else {
+            throw new IllegalStateException("Unable to handle callbacks in a new thread when handleCallbacks is set");
+        }
     }
 
 
@@ -209,45 +232,34 @@ public class ServiceImpl implements Service {
      * @param serviceMethodHandler handler
      */
     private void doHandleMethodCall(MethodCall<Object> methodCall,
-                                    final ServiceMethodHandler serviceMethodHandler
-                                    ) {
+                                    final ServiceMethodHandler serviceMethodHandler) {
         if (debug) {
-            logger.debug("ServiceImpl::doHandleMethodCall() METHOD CALL" + methodCall );
+            logger.debug("ServiceImpl::doHandleMethodCall() METHOD CALL" + methodCall);
         }
-
-        if (callbackManager!=null) {
+        if (callbackManager != null) {
             callbackManager.registerCallbacks(methodCall);
         }
         inputQueueListener.receive(methodCall);
-
         final boolean continueFlag[] = new boolean[1];
-
         methodCall = beforeMethodProcessing(methodCall, continueFlag);
-
         if (continueFlag[0]) {
             if (debug) logger.info("ServiceImpl::doHandleMethodCall() before handling stopped processing");
             return;
         }
-
         Response<Object> response = serviceMethodHandler.receiveMethodCall(methodCall);
-
         if (debug) {
             logger.debug("ServiceImpl::receive() \nRESPONSE\n" + response + "\nFROM CALL\n" + methodCall + "\n\n");
         }
-
         if (response != ServiceConstants.VOID) {
 
             if (!afterMethodCall.after(methodCall, response)) {
                 return;
             }
-
             response = responseObjectTransformer.transform(response);
 
             if (!afterMethodCallAfterTransform.after(methodCall, response)) {
                 return;
             }
-
-
             responseLock.lock();
             try {
                 responseSendQueue.send(response);
@@ -259,18 +271,31 @@ public class ServiceImpl implements Service {
     }
 
 
+    private void start(final ServiceMethodHandler serviceMethodHandler, boolean joinEventManager) {
 
+        final ReceiveQueue<Response<Object>> responseReceiveQueue =
+                this.handleCallbacks ?
+                        responseQueue.receiveQueue() : null;
 
+        if (handleCallbacks) {
+            this.callbackManager = new CallbackManager();
+        }
 
-    protected ReentrantLock responseLock  = new ReentrantLock();
-    protected volatile long lastResponseFlushTime = Timer.timer().now();
+        final ReceiveQueue<Event<Object>> eventReceiveQueue =
+                eventQueue.receiveQueue();
 
-    private void start(final ServiceMethodHandler serviceMethodHandler
-                       ) {
+        serviceThreadLocal.set(ServiceImpl.this);
 
-
-
+        if (!(service instanceof EventManager)) {
+            if (joinEventManager) {
+                serviceContext().joinEventManager();
+            }
+        }
+        serviceMethodHandler.queueInit();
+        flushEventManagerCalls();
+        serviceThreadLocal.set(null);
         requestQueue.startListener(new ReceiveQueueListener<MethodCall<Object>>() {
+
             @Override
             public void receive(MethodCall<Object> methodCall) {
                 doHandleMethodCall(methodCall, serviceMethodHandler);
@@ -278,53 +303,80 @@ public class ServiceImpl implements Service {
 
             @Override
             public void empty() {
-
-                manageResponseQueue();
-                if (inputQueueListener != null) {
-                    inputQueueListener.empty();
-                }
+                handle();
+                inputQueueListener.empty();
                 serviceMethodHandler.empty();
             }
 
             @Override
-            public void limit() {
+            public void startBatch() {
+                inputQueueListener.startBatch();
+                serviceMethodHandler.queueStartBatch();
+            }
 
-                manageResponseQueue();
-                if (inputQueueListener != null) {
-                    inputQueueListener.limit();
-                }
+            @Override
+            public void limit() {
+                handle();
+                inputQueueListener.limit();
                 serviceMethodHandler.limit();
             }
 
             @Override
             public void shutdown() {
-                if (inputQueueListener != null) {
-                    inputQueueListener.shutdown();
-                }
+                handle();
+                inputQueueListener.shutdown();
                 serviceMethodHandler.shutdown();
             }
 
             @Override
             public void idle() {
-
-                manageResponseQueue();
+                handle();
                 if (inputQueueListener != null) {
                     inputQueueListener.idle();
                 }
                 serviceMethodHandler.idle();
             }
+
+            /** Such a small method with so much responsibility. */
+            public void handle() {
+                manageResponseQueue();
+                /* Handles the CallBacks if you have configured the service
+                to handle its own callbacks.
+                Callbacks can be handled in a separate thread or the same
+                thread the manages the service.
+                 */
+                if (handleCallbacks) {
+                    Response<Object> response = responseReceiveQueue.poll();
+                    while (response != null) {
+                        callbackManager.handleResponse(response);
+                        response = responseReceiveQueue.poll();
+                    }
+                }
+                /* Handles the event processing. */
+                Event<Object> event = eventReceiveQueue.poll();
+                while (event != null) {
+                    serviceMethodHandler.handleEvent(event);
+                    event = eventReceiveQueue.poll();
+                }
+                flushEventManagerCalls();
+            }
+
         });
     }
 
+    private void flushEventManagerCalls() {
+        final EventManager eventManager = factory().eventManagerProxy();
+        if (eventManager != null) {
+            ServiceProxyUtils.flushServiceProxy(eventManager);
+            factory().clearEventManagerProxy();
+        }
+    }
+
     private void manageResponseQueue() {
-
-
         long now = Timer.timer().now();
-
         if (now - lastResponseFlushTime > 50) {
             lastResponseFlushTime = now;
             responseLock.lock();
-
             try {
                 responseSendQueue.flushSends();
             } finally {
@@ -334,26 +386,19 @@ public class ServiceImpl implements Service {
     }
 
     private MethodCall<Object> beforeMethodProcessing(MethodCall<Object> methodCall, boolean[] continueFlag) {
-
         if (!beforeMethodCall.before(methodCall)) {
             continueFlag[0] = false;
         }
-
         if (requestObjectTransformer != null && requestObjectTransformer != ServiceConstants.NO_OP_ARG_TRANSFORM) {
             final Object arg = requestObjectTransformer.transform(methodCall);
-
             methodCall = MethodCallBuilder.transformed(methodCall, arg);
         }
-
         if (beforeMethodCallAfterTransform != null && beforeMethodCallAfterTransform != ServiceConstants.NO_OP_BEFORE_METHOD_CALL) {
-
             if (!beforeMethodCallAfterTransform.before(methodCall)) {
                 continueFlag[0] = false;
             }
         }
-
         return methodCall;
-
     }
 
     @Override
@@ -366,10 +411,6 @@ public class ServiceImpl implements Service {
         return responseQueue.receiveQueue();
     }
 
-    @Override
-    public ReceiveQueue<Event> events() {
-        return null;
-    }
 
     @Override
     public String name() {
@@ -383,19 +424,30 @@ public class ServiceImpl implements Service {
 
     @Override
     public void stop() {
-        requestQueue.stop();
-        responseQueue.stop();
+
+        try {
+            if (requestQueue != null) requestQueue.stop();
+        } catch (Exception ex) {
+            if (debug) logger.debug("Unable to stop request queue", ex);
+        }
+
+
+        try {
+            if (responseQueue != null) responseQueue.stop();
+        } catch (Exception ex) {
+            if (debug) logger.debug("Unable to stop response queues", ex);
+        }
+
+        if (systemManager != null) this.systemManager.serviceShutDown();
     }
 
     @Override
     public Collection<String> addresses(String address) {
-
         return this.serviceMethodHandler.addresses();
     }
 
     @Override
     public void flush() {
-
         lastResponseFlushTime = 0;
         manageResponseQueue();
     }
@@ -404,8 +456,51 @@ public class ServiceImpl implements Service {
         return service;
     }
 
+    public <T> T createProxy(Class<T> serviceInterface) {
+        final SendQueue<MethodCall<Object>> methodCallSendQueue = requestQueue.sendQueue();
+        InvocationHandler invocationHandler = new InvocationHandler() {
+            private long timestamp = Timer.timer().now();
+            private int times = 10;
 
-    static class MethodCallLocal implements MethodCall<Object>{
+            @Override
+            public Object invoke(final Object proxy, final Method method, final Object[] args) throws Throwable {
+
+                if (method.getName().equals("clientProxyFlush")) {
+                    methodCallSendQueue.flushSends();
+                    return null;
+                }
+                times--;
+                if (times == 0) {
+                    timestamp = Timer.timer().now();
+                    times = 10;
+                } else {
+                    timestamp++;
+                }
+                final MethodCallLocal call = new MethodCallLocal(method.getName(), timestamp, args);
+                methodCallSendQueue.send(call);
+                return null;
+            }
+        };
+        final Object o = Proxy.newProxyInstance(Thread.currentThread().getContextClassLoader(),
+                new Class[]{serviceInterface, ClientProxy.class}, invocationHandler
+        );
+        return (T) o;
+    }
+
+    @Override
+    public SendQueue<Event<Object>> events() {
+        return this.eventQueue.sendQueue();
+    }
+
+    @Override
+    public String toString() {
+        return "Service{" +
+                "debug=" + debug +
+                ", service=" + service.getClass().getSimpleName() +
+                '}';
+    }
+
+    static class MethodCallLocal implements MethodCall<Object> {
 
         private final String name;
         private final long timestamp;
@@ -464,7 +559,6 @@ public class ServiceImpl implements Service {
 
         @Override
         public void handled() {
-
         }
 
         @Override
@@ -492,52 +586,4 @@ public class ServiceImpl implements Service {
             return true;
         }
     }
-
-    public <T> T createProxy(Class<T> serviceInterface) {
-
-
-        final SendQueue<MethodCall<Object>> methodCallSendQueue = requestQueue.sendQueue();
-
-
-        InvocationHandler invocationHandler = new InvocationHandler() {
-
-            long timestamp = Timer.timer().now();
-            int times = 10;
-
-            @Override
-            public Object invoke(final Object proxy, final Method method, final Object[] args) throws Throwable {
-
-
-
-                if (method.getName().equals("clientProxyFlush")) {
-
-                    methodCallSendQueue.flushSends();
-                    return null;
-                }
-                times--;
-                if (times == 0){
-                    timestamp = Timer.timer().now();
-                    times = 10;
-                } else {
-                    timestamp++;
-                }
-
-                final MethodCallLocal call = new MethodCallLocal(method.getName(), timestamp, args);
-                methodCallSendQueue.send(call);
-                return null;
-            }
-        };
-
-        final Object o = Proxy.newProxyInstance(Thread.currentThread().getContextClassLoader(),
-                new Class[]{serviceInterface, ClientProxy.class}, invocationHandler
-        );
-
-
-        return (T) o;
-
-
-    }
-
-
-
 }

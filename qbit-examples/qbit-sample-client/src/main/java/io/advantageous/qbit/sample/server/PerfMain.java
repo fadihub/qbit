@@ -1,3 +1,21 @@
+/*
+ * Copyright (c) 2015. Rick Hightower, Geoff Chandler
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *  		http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * QBit - The Microservice lib for Java : JSON, WebSocket, REST. Be The Web!
+ */
+
 package io.advantageous.qbit.sample.server;
 
 import io.advantageous.qbit.client.Client;
@@ -19,11 +37,10 @@ import static org.boon.Boon.puts;
 public class PerfMain {
 
 
-
     final static AtomicBoolean wait = new AtomicBoolean();
     final static int startSize = 0;
 
-    final static long startTime =  System.currentTimeMillis();
+    final static long startTime = System.currentTimeMillis();
 
     final static
     AtomicInteger totalSends = new AtomicInteger();
@@ -45,7 +62,6 @@ public class PerfMain {
         }
 
 
-
         Client client = new ClientBuilder().setPort(port).setHost(host).setPollTime(10)
                 .setAutoFlush(true).setFlushInterval(50).setRequestBatchSize(50)
                 .setProtocolBatchSize(50).build();
@@ -60,16 +76,12 @@ public class PerfMain {
         todoService.add(new TodoItem("Buy Hot dogs", "Go to 7/11 and buy some hot dogs", new Date()));
 
 
-
-
-
-        todoService.add(new TodoItem("a" , "b", new Date()));
+        todoService.add(new TodoItem("a", "b", new Date()));
 
 
         Date date = new Date();
 
-        for (int runs =0; runs < 10000; runs++) {
-
+        for (int runs = 0; runs < 10000; runs++) {
 
 
             for (int index = 0; index < 200_000; index++) {
@@ -87,7 +99,6 @@ public class PerfMain {
                 }
 
 
-
             }
 
             client.flush();
@@ -96,12 +107,9 @@ public class PerfMain {
             Sys.sleep(25);
 
 
-
             todoService.size(PerfMain::adjustSize);
 
         }
-
-
 
 
         Sys.sleep(10_000);
@@ -122,14 +130,13 @@ public class PerfMain {
     }
 
 
-
     private static void adjustSize(Integer size) {
         long duration = System.currentTimeMillis() - startTime;
 
         int itemsReceived = size - startSize;
         int currentTotalSends = totalSends.get();
 
-        if (currentTotalSends - 400_000 > ( itemsReceived ) ) {
+        if (currentTotalSends - 400_000 > (itemsReceived)) {
 
             puts("Waiting flag", "currentTotalSends", currentTotalSends, "itemsReceived", itemsReceived);
             wait.set(true);

@@ -1,18 +1,43 @@
+/*
+ * Copyright (c) 2015. Rick Hightower, Geoff Chandler
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *  		http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * QBit - The Microservice lib for Java : JSON, WebSocket, REST. Be The Web!
+ */
+
 package io.advantageous.qbit.queue.impl;
 
+import io.advantageous.qbit.GlobalConstants;
 import io.advantageous.qbit.queue.ReceiveQueue;
 import io.advantageous.qbit.queue.ReceiveQueueListener;
 import io.advantageous.qbit.queue.ReceiveQueueManager;
+import org.boon.core.Sys;
 
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.locks.LockSupport;
+
+import static org.boon.Boon.puts;
 
 
 /**
  * Created by Richard on 9/8/14.
+ *
  * @author rhightower
  */
 public class BasicReceiveQueueManager<T> implements ReceiveQueueManager<T> {
+
+    private final boolean debug = false || GlobalConstants.DEBUG;
+
 
     //boolean sleepWait = false;
 
@@ -32,6 +57,8 @@ public class BasicReceiveQueueManager<T> implements ReceiveQueueManager<T> {
             /* Collect a batch of items as long as no item is null. */
             while (item != null) {
 
+                listener.startBatch();
+
                 count++;
 
                 /* Notify listener that we have an item. */
@@ -40,6 +67,10 @@ public class BasicReceiveQueueManager<T> implements ReceiveQueueManager<T> {
 
                 /* If the batch size has hit the max then we need to break. */
                 if (count >= batchSize) {
+
+                    if (debug) {
+                        puts("BasicReceiveQueueManager limit reached", batchSize);
+                    }
                     listener.limit();
                     break;
                 }
@@ -51,6 +82,12 @@ public class BasicReceiveQueueManager<T> implements ReceiveQueueManager<T> {
 
             /* Notify listener that the queue is empty. */
             listener.empty();
+
+            if (debug) {
+                puts("BasicReceiveQueueManager empty queue count was", count, Thread.currentThread().getName());
+                Sys.sleep(1_000);
+            }
+
             count = 0;
 
 
@@ -60,8 +97,7 @@ public class BasicReceiveQueueManager<T> implements ReceiveQueueManager<T> {
             item = inputQueue.pollWait();
 
 
-
-            if (item==null ) {
+            if (item == null) {
                 if (longCount % 100 == 0) {
                     if (Thread.currentThread().isInterrupted()) {
                         if (stop.get()) {
@@ -76,6 +112,16 @@ public class BasicReceiveQueueManager<T> implements ReceiveQueueManager<T> {
                 or timed tasks.
                  */
                 listener.idle();
+
+                if (stop.get()) {
+                    listener.shutdown();
+                    return;
+                }
+
+
+                if (debug) {
+                    puts("BasicReceiveQueueManager idle");
+                }
 
 
             }

@@ -1,5 +1,6 @@
 /*
- * Copyright 2013-2014 Richard M. Hightower
+ * Copyright (c) 2015. Rick Hightower, Geoff Chandler
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -12,18 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
- * __________                              _____          __   .__
- * \______   \ ____   ____   ____   /\    /     \ _____  |  | _|__| ____    ____
- *  |    |  _//  _ \ /  _ \ /    \  \/   /  \ /  \\__  \ |  |/ /  |/    \  / ___\
- *  |    |   (  <_> |  <_> )   |  \ /\  /    Y    \/ __ \|    <|  |   |  \/ /_/  >
- *  |______  /\____/ \____/|___|  / \/  \____|__  (____  /__|_ \__|___|  /\___  /
- *         \/                   \/              \/     \/     \/       \//_____/
- *      ____.                     ___________   _____    ______________.___.
- *     |    |____ ___  _______    \_   _____/  /  _  \  /   _____/\__  |   |
- *     |    \__  \\  \/ /\__  \    |    __)_  /  /_\  \ \_____  \  /   |   |
- * /\__|    |/ __ \\   /  / __ \_  |        \/    |    \/        \ \____   |
- * \________(____  /\_/  (____  / /_______  /\____|__  /_______  / / ______|
- *               \/           \/          \/         \/        \/  \/
+ * QBit - The Microservice lib for Java : JSON, WebSocket, REST. Be The Web!
  */
 
 package io.advantageous.qbit.util;
@@ -33,9 +23,9 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * @author rhightower
  * @param <K> key
  * @param <V> value
+ * @author rhightower
  */
 
 public class MultiMapImpl<K, V> implements MultiMap<K, V> {
@@ -43,7 +33,6 @@ public class MultiMapImpl<K, V> implements MultiMap<K, V> {
     private int initialSize = 10;
     private Map<K, Collection<V>> map = new ConcurrentHashMap<>();
     private Class<? extends Collection> collectionClass = ArrayList.class;
-
 
     public MultiMapImpl(Class<? extends Collection> collectionClass, int initialSize) {
         this.collectionClass = collectionClass;
@@ -58,11 +47,30 @@ public class MultiMapImpl<K, V> implements MultiMap<K, V> {
     public MultiMapImpl() {
     }
 
+    static Collection<Object> createCollectionFromClass(Class<?> type, int size) {
+
+        if (type == List.class) {
+            return new ArrayList<>(size);
+        } else if (type == SortedSet.class) {
+            return new TreeSet<>();
+        } else if (type == Set.class) {
+            return new LinkedHashSet<>(size);
+        } else if (type.isAssignableFrom(List.class)) {
+            return new ArrayList<>();
+        } else if (type.isAssignableFrom(SortedSet.class)) {
+            return new TreeSet<>();
+        } else if (type.isAssignableFrom(Set.class)) {
+            return new LinkedHashSet<>(size);
+        } else {
+            return new ArrayList(size);
+        }
+
+    }
+
     @Override
     public Iterator<Entry<K, Collection<V>>> iterator() {
         return map.entrySet().iterator();
     }
-
 
     @Override
     public void add(K key, V v) {
@@ -72,7 +80,6 @@ public class MultiMapImpl<K, V> implements MultiMap<K, V> {
         }
         collection.add(v);
     }
-
 
     @Override
     public V put(K key, V value) {
@@ -89,7 +96,6 @@ public class MultiMapImpl<K, V> implements MultiMap<K, V> {
         map.remove(key);
         return null;
     }
-
 
     @Override
     public void putAll(Map<? extends K, ? extends V> m) {
@@ -109,12 +115,10 @@ public class MultiMapImpl<K, V> implements MultiMap<K, V> {
         return map.keySet();
     }
 
-
     @Override
     public V get(Object key) {
         return getFirst((K) key);
     }
-
 
     @Override
     public V getFirst(K key) {
@@ -125,7 +129,6 @@ public class MultiMapImpl<K, V> implements MultiMap<K, V> {
         return collection.iterator().next();
     }
 
-
     @Override
     public Iterable<V> getAll(K key) {
         Collection<V> collection = map.get(key);
@@ -135,7 +138,6 @@ public class MultiMapImpl<K, V> implements MultiMap<K, V> {
         return collection;
     }
 
-
     @Override
     public boolean removeValueFrom(K key, V v) {
         Collection<V> collection = map.get(key);
@@ -144,7 +146,6 @@ public class MultiMapImpl<K, V> implements MultiMap<K, V> {
         }
         return collection.remove(v);
     }
-
 
     @Override
     public boolean removeMulti(K key) {
@@ -176,7 +177,6 @@ public class MultiMapImpl<K, V> implements MultiMap<K, V> {
         return list;
     }
 
-
     @Override
     public Collection<V> values() {
 
@@ -191,7 +191,6 @@ public class MultiMapImpl<K, V> implements MultiMap<K, V> {
         return list;
 
     }
-
 
     @Override
     public Set<Entry<K, V>> entrySet() {
@@ -333,12 +332,10 @@ public class MultiMapImpl<K, V> implements MultiMap<K, V> {
         }
     }
 
-
     @Override
     public boolean containsValue(Object value) {
         throw new UnsupportedOperationException();
     }
-
 
     @Override
     public void putAll(MultiMap<K, V> params) {
@@ -366,24 +363,12 @@ public class MultiMapImpl<K, V> implements MultiMap<K, V> {
 
     }
 
-    static Collection<Object> createCollectionFromClass(Class<?> type, int size) {
-
-        if (type == List.class) {
-            return new ArrayList<>(size);
-        } else if (type == SortedSet.class) {
-            return new TreeSet<>();
-        } else if (type == Set.class) {
-            return new LinkedHashSet<>(size);
-        } else if (type.isAssignableFrom(List.class)) {
-            return new ArrayList<>();
-        } else if (type.isAssignableFrom(SortedSet.class)) {
-            return new TreeSet<>();
-        } else if (type.isAssignableFrom(Set.class)) {
-            return new LinkedHashSet<>(size);
-        } else {
-            return new ArrayList(size);
-        }
-
+    @Override
+    public String toString() {
+        return "MultiMapImpl{" +
+                "initialSize=" + initialSize +
+                ", map=" + map +
+                ", collectionClass=" + collectionClass +
+                '}';
     }
-
 }

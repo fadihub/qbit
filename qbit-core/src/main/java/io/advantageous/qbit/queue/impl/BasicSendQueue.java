@@ -1,3 +1,21 @@
+/*
+ * Copyright (c) 2015. Rick Hightower, Geoff Chandler
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *  		http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * QBit - The Microservice lib for Java : JSON, WebSocket, REST. Be The Web!
+ */
+
 package io.advantageous.qbit.queue.impl;
 
 import io.advantageous.qbit.queue.SendQueue;
@@ -13,6 +31,7 @@ import java.util.concurrent.TransferQueue;
  * Create a new for every thread by calling BasicQueue.sendQueue().
  * <p>
  * Created by Richard on 9/8/14.
+ *
  * @author rhightower
  */
 public class BasicSendQueue<T> implements SendQueue<T> {
@@ -23,32 +42,62 @@ public class BasicSendQueue<T> implements SendQueue<T> {
 
     private final Object[] queueLocal;
     private final int checkBusyEvery;
-    private int index;
-
     private final boolean tryTransfer;
-
+    private final boolean checkBusy;
     private final int batchSize;
-
-
+    private int index;
     private int checkEveryCount = 0;
 
-    public BasicSendQueue(int batchSize, BlockingQueue<Object> queue, boolean tryTransfer, int checkBusyEvery) {
+    public BasicSendQueue(
+            final int batchSize,
+            final BlockingQueue<Object> queue,
+            final boolean checkBusy,
+            final int checkBusyEvery,
+            final boolean tryTransfer) {
+
+        this.tryTransfer = tryTransfer;
         this.batchSize = batchSize;
         this.queue = queue;
         queueLocal = new Object[batchSize];
-        if (queue instanceof TransferQueue && tryTransfer) {
+        if (queue instanceof TransferQueue && checkBusy) {
             transferQueue = ((TransferQueue) queue);
-            this.tryTransfer = true;
+            this.checkBusy = true;
         } else {
-            this.tryTransfer = false;
+            this.checkBusy = false;
             transferQueue = null;
         }
         this.checkBusyEvery = checkBusyEvery;
     }
 
+    static Object[] objectArray(final Iterable iter) {
+        if (iter instanceof Collection) {
+            final Collection collection = (Collection) iter;
+            return collection.toArray(new Object[collection.size()]);
+        } else {
+            return objectArray(list(iter));
+        }
+    }
+
+    static <V> List<V> list(final Iterable<V> iterable) {
+        final List<V> list = new ArrayList<>();
+        for (V o : iterable) {
+            list.add(o);
+        }
+        return list;
+    }
+
+    static Object[] fastObjectArraySlice(final Object[] array,
+                                         final int start,
+                                         final int end) {
+        final int newLength = end - start;
+        final Object[] newArray = new Object[newLength];
+        System.arraycopy(array, start, newArray, 0, newLength);
+        return newArray;
+    }
+
     public boolean shouldBatch() {
 
-        if (tryTransfer) {
+        if (checkBusy) {
             return !transferQueue.hasWaitingConsumer();
 
         }
@@ -93,16 +142,17 @@ public class BasicSendQueue<T> implements SendQueue<T> {
 
     }
 
-
     private void flushIfOverBatch() {
 
         if (index >= batchSize) {
             sendLocalQueue();
-        } else if (tryTransfer) {
+        } else if (checkBusy) {
             checkEveryCount++;
-            if (checkEveryCount > this.checkBusyEvery && !shouldBatch()) {
+            if (checkEveryCount > this.checkBusyEvery) {
                 checkEveryCount = 0;
-                sendLocalQueue();
+                if (transferQueue.hasWaitingConsumer()) {
+                    sendLocalQueue();
+                }
             }
         }
     }
@@ -115,6 +165,7 @@ public class BasicSendQueue<T> implements SendQueue<T> {
     }
 
     private void sendLocalQueue() {
+
         final Object[] copy = fastObjectArraySlice(queueLocal, 0, index);
         sendArray(copy);
         index = 0;
@@ -123,7 +174,10 @@ public class BasicSendQueue<T> implements SendQueue<T> {
     private void sendArray(
             final Object[] array) {
 
-        if (tryTransfer) {
+
+        if (checkBusy) {
+            transferQueue.offer(array);
+        } else if (checkBusy && tryTransfer) {
             if (!transferQueue.tryTransfer(array)) {
                 transferQueue.offer(array);
             }
@@ -136,29 +190,8 @@ public class BasicSendQueue<T> implements SendQueue<T> {
         }
     }
 
-    static Object[] objectArray(final Iterable iter) {
-        if (iter instanceof Collection) {
-            final Collection collection = (Collection) iter;
-            return collection.toArray(new Object[collection.size()]);
-        } else {
-            return objectArray(list(iter));
-        }
-    }
-
-    static <V> List<V> list(final Iterable<V> iterable) {
-        final List<V> list = new ArrayList<>();
-        for (V o : iterable) {
-            list.add(o);
-        }
-        return list;
-    }
-
-    static Object[] fastObjectArraySlice(final Object[] array,
-                                         final int start,
-                                         final int end) {
-        final int newLength = end - start;
-        final Object[] newArray = new Object[newLength];
-        System.arraycopy(array, start, newArray, 0, newLength);
-        return newArray;
+    @Override
+    public int hashCode() {
+        return queue.hashCode();
     }
 }

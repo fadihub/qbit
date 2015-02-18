@@ -1,3 +1,21 @@
+/*
+ * Copyright (c) 2015. Rick Hightower, Geoff Chandler
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *  		http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * QBit - The Microservice lib for Java : JSON, WebSocket, REST. Be The Web!
+ */
+
 package io.advantageous.qbit.service;
 
 import io.advantageous.qbit.GlobalConstants;
@@ -5,27 +23,49 @@ import io.advantageous.qbit.QBit;
 import io.advantageous.qbit.message.Request;
 import io.advantageous.qbit.queue.QueueBuilder;
 import io.advantageous.qbit.service.impl.ServiceConstants;
+import io.advantageous.qbit.system.QBitSystemManager;
 import io.advantageous.qbit.transforms.Transformer;
 
 /**
- *
  * Allows for the programmatic construction of a service.
- * @author rhightower
- * Created by Richard on 11/14/14.
  *
- * Created by rhightower on 1/19/15.
+ * @author rhightower
+ *         Created by Richard on 11/14/14.
+ *         <p>
+ *         Created by rhightower on 1/19/15.
  */
 public class ServiceBundleBuilder {
 
+    QueueBuilder queueBuilder;
     private int pollTime = GlobalConstants.POLL_WAIT;
     private int requestBatchSize = GlobalConstants.BATCH_SIZE;
-
     private boolean invokeDynamic = true;
-
-    private  String address = "/services";
-
+    private String address = "/services";
     private boolean eachServiceInItsOwnThread = true;
+    private QBitSystemManager qBitSystemManager;
+    /**
+     * Allows interception of method calls before they get sent to a client.
+     * This allows us to transform or reject method calls.
+     */
+    private BeforeMethodCall beforeMethodCall = ServiceConstants.NO_OP_BEFORE_METHOD_CALL;
+    /**
+     * Allows interception of method calls before they get transformed and sent to a client.
+     * This allows us to transform or reject method calls.
+     */
+    private BeforeMethodCall beforeMethodCallAfterTransform = ServiceConstants.NO_OP_BEFORE_METHOD_CALL;
+    /**
+     * Allows transformation of arguments, for example from JSON to Java objects.
+     */
+    private Transformer<Request, Object> argTransformer = ServiceConstants.NO_OP_ARG_TRANSFORM;
 
+    public QBitSystemManager getSystemManager() {
+        return qBitSystemManager;
+    }
+
+    public ServiceBundleBuilder setSystemManager(QBitSystemManager qBitSystemManager) {
+        this.qBitSystemManager = qBitSystemManager;
+        return this;
+    }
 
     public boolean isInvokeDynamic() {
         return invokeDynamic;
@@ -44,25 +84,6 @@ public class ServiceBundleBuilder {
         this.eachServiceInItsOwnThread = eachServiceInItsOwnThread;
         return this;
     }
-
-    /**
-     * Allows interception of method calls before they get sent to a client.
-     * This allows us to transform or reject method calls.
-     */
-    private  BeforeMethodCall beforeMethodCall = ServiceConstants.NO_OP_BEFORE_METHOD_CALL;
-
-    /**
-     * Allows interception of method calls before they get transformed and sent to a client.
-     * This allows us to transform or reject method calls.
-     */
-    private  BeforeMethodCall beforeMethodCallAfterTransform = ServiceConstants.NO_OP_BEFORE_METHOD_CALL;
-
-
-    /**
-     * Allows transformation of arguments, for example from JSON to Java objects.
-     */
-    private Transformer<Request, Object> argTransformer = ServiceConstants.NO_OP_ARG_TRANSFORM;
-
 
     public BeforeMethodCall getBeforeMethodCall() {
         return beforeMethodCall;
@@ -103,8 +124,6 @@ public class ServiceBundleBuilder {
         return this;
     }
 
-
-
     public int getPollTime() {
         return pollTime;
     }
@@ -123,11 +142,6 @@ public class ServiceBundleBuilder {
         return this;
     }
 
-
-
-
-    QueueBuilder queueBuilder;
-
     public QueueBuilder getQueueBuilder() {
         return queueBuilder;
     }
@@ -137,9 +151,10 @@ public class ServiceBundleBuilder {
         return this;
     }
 
+
     public ServiceBundle build() {
 
-        if (queueBuilder==null) {
+        if (queueBuilder == null) {
 
             queueBuilder = new QueueBuilder().setBatchSize(this.getRequestBatchSize()).setPollWait(this.getPollTime());
 
@@ -149,10 +164,22 @@ public class ServiceBundleBuilder {
                 queueBuilder,
                 QBit.factory(),
                 eachServiceInItsOwnThread, this.getBeforeMethodCall(), this.getBeforeMethodCallAfterTransform(),
-                this.getArgTransformer(), invokeDynamic);
+                this.getArgTransformer(), invokeDynamic, this.getSystemManager());
+
+
+        if (serviceBundle != null && qBitSystemManager != null) {
+            qBitSystemManager.registerServiceBundle(serviceBundle);
+        }
 
         return serviceBundle;
 
+
+    }
+
+    public ServiceBundle buildAndStart() {
+        final ServiceBundle build = build();
+        build.start();
+        return build;
     }
 }
 

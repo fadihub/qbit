@@ -1,3 +1,21 @@
+/*
+ * Copyright (c) 2015. Rick Hightower, Geoff Chandler
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *  		http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * QBit - The Microservice lib for Java : JSON, WebSocket, REST. Be The Web!
+ */
+
 package io.advantageous.qbit.sender;
 
 import io.advantageous.qbit.message.Message;
@@ -13,12 +31,11 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 
-import static org.boon.Boon.puts;
-
 /**
  * Combines a sender with a protocol encoder so we can send messages to another remote end point.
  * Created by Richard on 10/1/14.
- *  @author Rick Hightower
+ *
+ * @author Rick Hightower
  */
 public class SenderEndPoint implements EndPoint {
 
@@ -32,7 +49,7 @@ public class SenderEndPoint implements EndPoint {
     private final int requestBatchSize;
 
     public SenderEndPoint(ProtocolEncoder encoder, String address, Sender<String> sender, BeforeMethodCall beforeMethodCall,
-                         int requestBatchSize ) {
+                          int requestBatchSize) {
         this.encoder = encoder;
         this.address = address;
 
@@ -63,9 +80,9 @@ public class SenderEndPoint implements EndPoint {
     @Override
     public void call(List<MethodCall<Object>> methodCalls) {
 
-        if (methodCalls.size()>0) {
+        if (methodCalls.size() > 0) {
             String returnAddress = methodCalls.get(0).returnAddress();
-            List<Message<Object>> methods =  (List<Message<Object>>) (Object) methodCalls;
+            List<Message<Object>> methods = (List<Message<Object>>) (Object) methodCalls;
             sender.send(returnAddress, encoder.encodeAsString(methods));
         }
     }
@@ -77,7 +94,7 @@ public class SenderEndPoint implements EndPoint {
         flush(null);
     }
 
-    private  void flush(MethodCall<Object> lastMethodCall) {
+    private void flush(MethodCall<Object> lastMethodCall) {
 
 
         Message<Object> method = null;
@@ -95,9 +112,9 @@ public class SenderEndPoint implements EndPoint {
 
         List<Message<Object>> methods = null;
 
-        String returnAddress = ((MethodCall<Object>)method).returnAddress();
+        String returnAddress = ((MethodCall<Object>) method).returnAddress();
 
-        methods = new ArrayList<>(requestBatchSize+1);
+        methods = new ArrayList<>(requestBatchSize + 1);
 
         int count = 0;
 
@@ -112,8 +129,7 @@ public class SenderEndPoint implements EndPoint {
             }
 
 
-
-            if (count> requestBatchSize) {
+            if (count > requestBatchSize) {
 
                 sender.send(returnAddress, encoder.encodeAsString(methods));
                 methods.clear();
@@ -125,7 +141,7 @@ public class SenderEndPoint implements EndPoint {
 
         }
 
-        if (lastMethodCall!=null) {
+        if (lastMethodCall != null) {
             methods.add(lastMethodCall);
         }
 

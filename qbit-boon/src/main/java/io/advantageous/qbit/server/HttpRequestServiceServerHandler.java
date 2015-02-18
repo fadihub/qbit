@@ -1,15 +1,38 @@
+/*
+ * Copyright (c) 2015. Rick Hightower, Geoff Chandler
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *  		http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * QBit - The Microservice lib for Java : JSON, WebSocket, REST. Be The Web!
+ */
+
 package io.advantageous.qbit.server;
 
 import io.advantageous.qbit.GlobalConstants;
 import io.advantageous.qbit.QBit;
 import io.advantageous.qbit.annotation.RequestMethod;
-import io.advantageous.qbit.http.*;
+import static io.advantageous.qbit.bindings.HttpMethod.*;
+
+import io.advantageous.qbit.bindings.HttpMethod;
+import io.advantageous.qbit.http.request.HttpRequest;
+import io.advantageous.qbit.http.request.HttpResponseReceiver;
 import io.advantageous.qbit.json.JsonMapper;
 import io.advantageous.qbit.message.MethodCall;
 import io.advantageous.qbit.message.Request;
 import io.advantageous.qbit.message.Response;
 import io.advantageous.qbit.queue.SendQueue;
 import io.advantageous.qbit.service.ServiceBundle;
+import io.advantageous.qbit.service.ServiceMethodNotFoundException;
 import io.advantageous.qbit.spi.ProtocolEncoder;
 import io.advantageous.qbit.spi.ProtocolParser;
 import io.advantageous.qbit.util.MultiMap;
@@ -23,56 +46,96 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
-import java.util.*;
+import java.util.LinkedHashSet;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeoutException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+import static org.boon.Boon.puts;
+import static org.boon.Boon.sputs;
 
 /**
- * Created by rhightower on 1/27/15.
+ * @author rhightower on 1/27/15.
  */
 public class HttpRequestServiceServerHandler {
-
-    private final Logger logger = LoggerFactory.getLogger(HttpRequestServiceServerHandler.class);
-    private final boolean debug = logger.isDebugEnabled();
 
     protected final int timeoutInSeconds;
     protected final ProtocolEncoder encoder;
     protected final ProtocolParser parser;
-    protected final JsonMapper jsonMapper;
+    protected final JsonMapper jsonMapper; //TODO make this a TLV and use a thread pool just in case we have large JSON payloads
+    protected final long flushInterval;
+    private final Logger logger = LoggerFactory.getLogger(HttpRequestServiceServerHandler.class);
+    private final boolean debug = false || GlobalConstants.DEBUG || logger.isDebugEnabled();
     private final SendQueue<MethodCall<Object>> methodCallSendQueue;
-    protected volatile long lastTimeoutCheckTime = 0;
-
-
-
-    private final Set<String> getMethodURIs = new LinkedHashSet<>();
-    private final Set<String> postMethodURIs = new LinkedHashSet<>();
     private final Set<String> objectNameAddressURIWithVoidReturn = new LinkedHashSet<>();
-    private final Set<String> getMethodURIsWithVoidReturn = new LinkedHashSet<>();
-    private final Set<String> postMethodURIsWithVoidReturn = new LinkedHashSet<>();
     private final Map<String, Request<Object>> outstandingRequestMap = new ConcurrentHashMap<>(100_000);
     private final int numberOfOutstandingRequests;
+    private final ExecutorService executorService = Executors.newFixedThreadPool(5);
+    protected volatile long lastTimeoutCheckTime;
+    protected volatile long lastFlushTime = 0;
+
+    private Map<String, HttpMethodHandlerInfo> httpMethodHandlerInfoMap = new ConcurrentHashMap<>(8);
 
 
+    static class HttpMethodHandlerInfo {
+        private final HttpMethod method;
+        private final boolean hasRequestBody;
+        private final Set<String> serviceURIs = new LinkedHashSet<>();
+        private final Set<String> serviceMethodURIsWithVoidReturn = new LinkedHashSet<>();
 
-    public void httpRequestQueueIdle(Void v) {
-        methodCallSendQueue.flushSends();
+        HttpMethodHandlerInfo(HttpMethod method, boolean hasRequestBody) {
+            this.method = method;
+            this.hasRequestBody = hasRequestBody;
+        }
+
+        @Override
+        public String toString() {
+            return "HttpMethodHandlerInfo{" +
+                    "method=" + method +
+                    ", hasRequestBody=" + hasRequestBody +
+                    ", serviceURIs=" + serviceURIs +
+                    ", serviceMethodURIsWithVoidReturn=" + serviceMethodURIsWithVoidReturn +
+                    '}';
+        }
     }
 
-    public HttpRequestServiceServerHandler(int timeoutInSeconds, ProtocolEncoder encoder, ProtocolParser parser, ServiceBundle serviceBundle, JsonMapper jsonMapper,
-                                           final int numberOfOutstandingRequests
-    ) {
+
+    public HttpRequestServiceServerHandler(int timeoutInSeconds, ProtocolEncoder encoder, ProtocolParser parser, ServiceBundle serviceBundle, JsonMapper jsonMapper, final int numberOfOutstandingRequests, int flushInterval) {
         this.timeoutInSeconds = timeoutInSeconds;
+        lastTimeoutCheckTime = Timer.timer().now() + ( timeoutInSeconds * 1000 );
         this.encoder = encoder;
         this.parser = parser;
         this.jsonMapper = jsonMapper;
         this.numberOfOutstandingRequests = numberOfOutstandingRequests;
 
         this.methodCallSendQueue = serviceBundle.methodSendQueue();
+        this.flushInterval = flushInterval;
+
+        httpMethodHandlerInfoMap.put(GET.name(), new HttpMethodHandlerInfo(GET, false));
+        httpMethodHandlerInfoMap.put(HEAD.name(), new HttpMethodHandlerInfo(HEAD, false));
+        httpMethodHandlerInfoMap.put(TRACE.name(), new HttpMethodHandlerInfo(TRACE, false)); //You can ignore with 404 if it has a body according to RFC
+
+        httpMethodHandlerInfoMap.put(OPTIONS.name(), new HttpMethodHandlerInfo(OPTIONS, true)); //Collect meta-data, body not defined but not forbidden
+        httpMethodHandlerInfoMap.put(DELETE.name(), new HttpMethodHandlerInfo(DELETE, true)); //Body not forbidden
+        httpMethodHandlerInfoMap.put(PUT.name(), new HttpMethodHandlerInfo(PUT, true));
+        httpMethodHandlerInfoMap.put(POST.name(), new HttpMethodHandlerInfo(POST, true));
+        httpMethodHandlerInfoMap.put(CONNECT.name(), new HttpMethodHandlerInfo(CONNECT, true));
+
 
     }
 
+    public void httpRequestQueueIdle(Void v) {
+        long lastFlush = lastFlushTime;
+        long now = Timer.timer().now();
+        long duration = now - lastFlush;
 
-
+        if ( duration > flushInterval ) {
+            lastFlushTime = now;
+            methodCallSendQueue.flushSends();
+        }
+    }
 
     /**
      * All REST calls come through here.
@@ -88,57 +151,38 @@ public class HttpRequestServiceServerHandler {
         final String uri = request.getUri();
 
 
+        if ( debug ) {
+            logger.info(sputs("handleRestCall()", uri));
+        }
+
+
         Object args = null;
 
-        switch (request.getMethod()) {
-            case "GET":
-                knownURI = getMethodURIs.contains(uri);
-                if (getMethodURIsWithVoidReturn.contains(uri)) {
-                    writeResponse(request.getResponse(), 200, "application/json", "\"success\"", request.getHeaders());
+        final HttpMethodHandlerInfo httpMethodHandlerInfo = httpMethodHandlerInfoMap.get(request.getMethod());
 
-                } else {
-                    if (!addRequestToCheckForTimeouts(request)) {
+        if (httpMethodHandlerInfo.serviceMethodURIsWithVoidReturn.contains(uri)) {
+            writeResponse(request.getReceiver(), 200,
+                    "application/json", "\"success\"", request.getHeaders());
+        } else {
+            if ( !addRequestToCheckForTimeouts(request) ) {
 
-                        writeResponse(request.getResponse(), 429, "application/json", "\"too many outstanding requests\"", request.getHeaders());
-                        return;
-                    }
-                }
-                break;
-
-            case "POST":
-                knownURI = postMethodURIs.contains(uri);
-                if (postMethodURIsWithVoidReturn.contains(uri)) {
-                    writeResponse(request.getResponse(), 200, "application/json", "\"success\"", request.getHeaders());
-                } else {
-                    if (!addRequestToCheckForTimeouts(request)) {
-
-                        writeResponse(request.getResponse(), 429, "application/json", "\"too many outstanding requests\"", request.getHeaders());
-                        return;
-                    }
-                }
-                if (!Str.isEmpty(request.getBody())) {
-                    args = jsonMapper.fromJson(new String(request.getBody(), StandardCharsets.UTF_8));
-                }
-                break;
+                writeResponse(request.getReceiver(), 429, "application/json",
+                        "\"too many outstanding requests\"", request.getHeaders());
+                return;
+            }
         }
 
-
-        if (!knownURI) {
-            request.handled(); //Mark the request as handled.
-
-            writeResponse(request.getResponse(), 404, "application/json",
-                    Str.add("\"No service method for URI ", request.getUri(), "\""), request.getHeaders());
-
-            return;
-
+        /* If there is a body parse JSON. */
+        if ( request.getBody()!=null && request.getBody().length > 0  ) {
+            args = jsonMapper.fromJson(new String(request.getBody(), StandardCharsets.UTF_8));
         }
 
-        final MethodCall<Object> methodCall =
-                QBit.factory().createMethodCallFromHttpRequest(request, args);
+        final MethodCall<Object> methodCall = QBit.factory().createMethodCallFromHttpRequest(request, args);
 
 
-        if (GlobalConstants.DEBUG) {
-            logger.info("Handle REST Call for MethodCall " + methodCall);
+        if ( debug ) {
+            logger.debug("Handle REST Call for MethodCall " + methodCall);
+            puts("Handle REST Call for MethodCall " + methodCall);
         }
         methodCallSendQueue.send(methodCall);
 
@@ -159,11 +203,11 @@ public class HttpRequestServiceServerHandler {
         String objectNameAddress;
 
 
-        if (data != null) {
+        if ( data != null ) {
             final Map<String, Object> methodValuesForAnnotation = data.getValues();
             methodURI = extractMethodURI(methodValuesForAnnotation);
 
-            if (methodURI==null) {
+            if ( methodURI == null ) {
                 methodURI = Str.add("/", method.name());
             }
             httpMethod = extractHttpMethod(methodValuesForAnnotation);
@@ -175,42 +219,46 @@ public class HttpRequestServiceServerHandler {
             methodURI = Str.add("/", method.name());
         }
 
+        if ( debug ) {
+            final String message = sputs("registerMethodToEndPoint methodURI", methodURI);
+            logger.debug(message);
+            puts(message);
+        }
 
         objectNameAddress = Str.add(baseURI, serviceURI, methodURI);
 
         final boolean voidReturn = method.returnType() == void.class;
 
 
-        if (voidReturn) {
+        if ( voidReturn ) {
             objectNameAddressURIWithVoidReturn.add(objectNameAddress);
             objectNameAddressURIWithVoidReturn.add(Str.add(baseURI, serviceURI, "/", method.name()));
 
         }
 
 
-        switch (httpMethod) {
-            case GET:
-                getMethodURIs.add(objectNameAddress);
 
-                getMethodURIs.add(objectNameAddress.toLowerCase());
-                if (voidReturn) {
-                    getMethodURIsWithVoidReturn.add(objectNameAddress);
+        final HttpMethodHandlerInfo httpMethodHandlerInfo = httpMethodHandlerInfoMap.get(httpMethod.name());
 
-                    getMethodURIsWithVoidReturn.add(Str.add(baseURI, serviceURI, "/", method.name()));
+        httpMethodHandlerInfo.serviceURIs.add(objectNameAddress);
 
+        httpMethodHandlerInfo.serviceURIs.add(objectNameAddress.toLowerCase());
 
-                }
-                break;
-            case POST:
-                postMethodURIs.add(objectNameAddress);
-                postMethodURIs.add(objectNameAddress.toLowerCase());
-                if (voidReturn) {
-                    postMethodURIsWithVoidReturn.add(objectNameAddress);
-                    postMethodURIsWithVoidReturn.add(Str.add(baseURI, serviceURI, "/", method.name()));
+        if ( voidReturn ) {
+            httpMethodHandlerInfo.serviceMethodURIsWithVoidReturn
+                    .add(objectNameAddress);
 
-                }
-                break;
+            httpMethodHandlerInfo.serviceMethodURIsWithVoidReturn.
+                    add(Str.add(baseURI, serviceURI, "/", method.name()));
         }
+
+
+        if ( debug ) {
+            final String message = sputs("registerMethodToEndPoint::", httpMethodHandlerInfo);
+            logger.debug(message);
+            puts(message);
+        }
+
     }
 
     /**
@@ -220,14 +268,22 @@ public class HttpRequestServiceServerHandler {
      * @param serviceURI client URI
      * @param methods    methods
      */
-    private void registerMethodsToEndPoints(String baseURI, String serviceURI, Iterable<MethodAccess> methods) {
-        for (MethodAccess method : methods) {
-            if (!method.isPublic() || method.method().getName().contains("$")) continue;
+    private void registerMethodsToEndPoints(final String baseURI, final String serviceURI, final Iterable<MethodAccess> methods) {
+        for ( MethodAccess method : methods ) {
+            if ( !method.isPublic() || method.method().getName().contains("$") ) continue;
 
+            if ( debug ) {
+                final String message = sputs("registerMethodsToEndPoints serviceURI", serviceURI, "method name", method.name());
+                logger.debug(message);
+                puts(message);
+            }
 
             registerMethodToEndPoint(baseURI, serviceURI, method);
 
         }
+
+
+
     }
 
 
@@ -239,7 +295,7 @@ public class HttpRequestServiceServerHandler {
      */
     public void addRestSupportFor(Class cls, String baseURI) {
 
-        if (debug) logger.debug("addRestSupportFor " + cls.getName());
+        if ( debug ) logger.debug("addRestSupportFor " + cls.getName());
 
         ClassMeta classMeta = ClassMeta.classMeta(cls);
 
@@ -247,13 +303,13 @@ public class HttpRequestServiceServerHandler {
 
         final AnnotationData mapping = classMeta.annotation("RequestMapping");
 
-        if (mapping != null) {
+        if ( mapping != null ) {
 
 
             Map<String, Object> requestMapping = mapping.getValues();
 
 
-            String serviceURI = ((String[]) requestMapping.get("value"))[0];
+            String serviceURI = ( ( String[] ) requestMapping.get("value") )[ 0 ];
 
 
             registerMethodsToEndPoints(baseURI, serviceURI, methods);
@@ -261,15 +317,12 @@ public class HttpRequestServiceServerHandler {
         } else {
 
 
-            registerMethodsToEndPoints(baseURI, "/" + Str.uncapitalize(classMeta.name()),
-                    methods);
+            registerMethodsToEndPoints(baseURI, "/" + Str.uncapitalize(classMeta.name()), methods);
 
         }
 
 
     }
-
-
 
 
     /**
@@ -281,10 +334,10 @@ public class HttpRequestServiceServerHandler {
     private RequestMethod extractHttpMethod(Map<String, Object> methodValuesForAnnotation) {
         RequestMethod httpMethod = null;
 
-        RequestMethod[] httpMethods = (RequestMethod[]) methodValuesForAnnotation.get("method");
+        RequestMethod[] httpMethods = ( RequestMethod[] ) methodValuesForAnnotation.get("method");
 
-        if (httpMethods != null && httpMethods.length > 0) {
-            httpMethod = httpMethods[0];
+        if ( httpMethods != null && httpMethods.length > 0 ) {
+            httpMethod = httpMethods[ 0 ];
 
         }
 
@@ -302,14 +355,14 @@ public class HttpRequestServiceServerHandler {
     private String extractMethodURI(Map<String, Object> methodValuesForAnnotation) {
 
 
-        String[] values = (String[]) methodValuesForAnnotation.get("value");
+        String[] values = ( String[] ) methodValuesForAnnotation.get("value");
 
-        if (values == null || values.length ==0) {
+        if ( values == null || values.length == 0 ) {
             return null;
         }
-        String methodURI = values[0];
-        if (methodURI.contains("{")) {
-            methodURI = StringScanner.split(methodURI, '{', 1)[0];
+        String methodURI = values[ 0 ];
+        if ( methodURI.contains("{") ) {
+            methodURI = StringScanner.split(methodURI, '{', 1)[ 0 ];
         }
 
         return methodURI;
@@ -330,41 +383,53 @@ public class HttpRequestServiceServerHandler {
     }
 
 
-
     /**
      *
      */
     public void checkTimeoutsForRequests() {
 
         final long now = Timer.timer().now();
+        final long durationSinceLastCheck = now - lastTimeoutCheckTime;
+        final long timeoutInMS = timeoutInSeconds * 1000;
+        final boolean timedOut = durationSinceLastCheck > timeoutInMS;
 
-        if (!(now - lastTimeoutCheckTime > timeoutInSeconds * 1_000)) {
+
+        if ( !( timedOut ) ) {
             return;
         }
 
 
-
-
-        lastTimeoutCheckTime = now;
-        long duration;
-
-
-        final Collection<Request<Object>> values = this.outstandingRequestMap.values();
-
-
-        for(Request<Object> request : values) {
-            duration = now - request.timestamp();
-
-            if (duration > (timeoutInSeconds * 1000)) {
-                if (!request.isHandled()) {
-
-                    handleMethodTimedOut(request);
-                }
-            }
+        if ( debug ) {
+            puts("Checking for timeout.", "duration", durationSinceLastCheck, "ms timeout", timeoutInMS);
         }
 
-    }
+        executorService.submit(new Runnable() {
+            @Override
+            public void run() {
+                lastTimeoutCheckTime = now;
+                long duration;
 
+                final Set<Map.Entry<String, Request<Object>>> entries = outstandingRequestMap.entrySet();
+
+                for ( Map.Entry<String, Request<Object>> requestEntry : entries ) {
+                    final Request<Object> request = requestEntry.getValue();
+                    duration = now - request.timestamp();
+
+                    if ( duration > timeoutInMS ) {
+                        if ( !request.isHandled() ) {
+                            if ( debug ) {
+                                puts("Request timed out.", "duration", duration, "ms timeout", timeoutInMS);
+                            }
+                            handleMethodTimedOut(requestEntry.getKey(), request);
+                        }
+                    }
+                }
+
+            }
+        });
+
+
+    }
 
 
     /**
@@ -372,91 +437,27 @@ public class HttpRequestServiceServerHandler {
      *
      * @param request request
      */
-    private void handleMethodTimedOut(final Request<Object> request) {
-
-
-        String key = Str.add("" + request.id(), "|", request.returnAddress());
+    private void handleMethodTimedOut(String key, final Request<Object> request) {
         this.outstandingRequestMap.remove(key);
+        if ( request.isHandled() ) {
+            return;
+        }
         request.handled();
 
+        final HttpResponseReceiver httpResponse = ( ( HttpRequest ) request ).getReceiver();
 
-        if (request instanceof HttpRequest) {
-
-            final HttpResponseReceiver httpResponse = ((HttpRequest) request).getResponse();
-
-            try {
-                httpResponse.response(408, "application/json", "\"timed out\"");
-            } catch (Exception ex) {
-                logger.debug("Response not marked handled and it timed out, but could not be written " + request, ex);
-
-            }
-        } else if (request instanceof WebSocketMessage) {
-
-            final WebSocketMessage webSocketMessage = (WebSocketMessage) request;
-
-            final WebSocketSender webSocket = webSocketMessage.getSender();
-
-            if (webSocket != null) {
-
-                Response<Object> response = new Response<Object>() {
-                    @Override
-                    public boolean wasErrors() {
-                        return true;
-                    }
-
-                    @Override
-                    public void body(Object body) {
-
-                    }
-
-                    @Override
-                    public String returnAddress() {
-                        return request.returnAddress();
-                    }
-
-                    @Override
-                    public String address() {
-                        return request.address();
-                    }
-
-                    @Override
-                    public long timestamp() {
-                        return request.timestamp();
-                    }
-
-                    @Override
-                    public Request<Object> request() {
-                        return request;
-                    }
-
-                    @Override
-                    public long id() {
-                        return request.id();
-                    }
-
-                    @Override
-                    public Object body() {
-                        return new TimeoutException("Request timed out");
-                    }
-
-                    @Override
-                    public boolean isSingleton() {
-                        return true;
-                    }
-                };
-                String responseAsText = encoder.encodeAsString(response);
-                webSocket.send(responseAsText);
-
-            }
-        } else {
-            throw new IllegalStateException("Unexpected request type " + request);
+        try {
+            httpResponse.response(408, "application/json", "\"timed out\"");
+        } catch ( Exception ex ) {
+            logger.debug("Response not marked handled and it timed out, but could not be written " + request, ex);
         }
     }
 
 
-    private void writeResponse(HttpResponseReceiver response, int code, String mimeType, String responseString, MultiMap<String, String> headers) {
+    private void writeResponse(HttpResponseReceiver response, int code, String mimeType, String responseString,
+                               MultiMap<String, String> headers) {
 
-        if (response.isText()) {
+        if ( response.isText() ) {
             response.response(code, mimeType, responseString, headers);
         } else {
             response.response(code, mimeType, responseString.getBytes(StandardCharsets.UTF_8), headers);
@@ -464,10 +465,8 @@ public class HttpRequestServiceServerHandler {
     }
 
 
-
-
-
     public void handleResponseFromServiceToHttpResponse(Response<Object> response, HttpRequest originatingRequest) {
+
 
 
         String key = Str.add("" + originatingRequest.id(), "|", originatingRequest.returnAddress());
@@ -475,10 +474,19 @@ public class HttpRequestServiceServerHandler {
 
         final HttpRequest httpRequest = originatingRequest;
 
-        if (response.wasErrors()) {
-            writeResponse(httpRequest.getResponse(), 500, "application/json", jsonMapper.toJson(response.body()), httpRequest.getHeaders());
+        if ( response.wasErrors() ) {
+
+            Object obj =  response.body();
+
+            if (obj instanceof ServiceMethodNotFoundException) {
+                writeResponse(httpRequest.getReceiver(), 404, "application/json", jsonMapper.toJson(response.body()), httpRequest.getHeaders());
+
+            } else {
+                writeResponse(httpRequest.getReceiver(), 500, "application/json", jsonMapper.toJson(response.body()), httpRequest.getHeaders());
+
+            }
         } else {
-            writeResponse(httpRequest.getResponse(), 200, "application/json", jsonMapper.toJson(response.body()), httpRequest.getHeaders());
+            writeResponse(httpRequest.getReceiver(), 200, "application/json", jsonMapper.toJson(response.body()), httpRequest.getHeaders());
         }
     }
 

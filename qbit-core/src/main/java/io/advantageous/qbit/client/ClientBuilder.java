@@ -1,13 +1,32 @@
+/*
+ * Copyright (c) 2015. Rick Hightower, Geoff Chandler
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *  		http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * QBit - The Microservice lib for Java : JSON, WebSocket, REST. Be The Web!
+ */
+
 package io.advantageous.qbit.client;
 
+import io.advantageous.qbit.GlobalConstants;
 import io.advantageous.qbit.QBit;
-import io.advantageous.qbit.http.HttpClient;
+import io.advantageous.qbit.http.client.HttpClient;
 
 /**
- * Client builder is used to create a client programatically.
- *
- *
- *
+ * Client builder is used to createWithWorkers a client programatically.
+ * <p>
+ * <p>
+ * <p>
  * Created by rhightower on 12/3/14.
  */
 public class ClientBuilder {
@@ -16,20 +35,56 @@ public class ClientBuilder {
     private String host = "localhost";
     private int port = 8080;
     private boolean autoFlush = true;
-    private int pollTime = 100;
-    private int poolSize = 10;
-
-    private int requestBatchSize = 10;
+    private int pollTime = GlobalConstants.POLL_WAIT;
+    private int poolSize = 1;
+    private int requestBatchSize = GlobalConstants.BATCH_SIZE;
     private boolean keepAlive = true;
     private boolean pipeline = true;
-
-
-
+    private int timeOutInMilliseconds = 3000;
     private int protocolBatchSize = -1;
-
-    private int flushInterval = 100;
+    private int flushInterval = 500;
     private String uri = "/services";
+    private int timeoutSeconds = 30;
 
+    public static ClientBuilder clientBuilder() {
+        return new ClientBuilder();
+    }
+
+    public int getTimeOutInMilliseconds() {
+        return timeOutInMilliseconds;
+    }
+
+    public ClientBuilder setTimeOutInMilliseconds(int timeOutInMilliseconds) {
+        this.timeOutInMilliseconds = timeOutInMilliseconds;
+        return this;
+    }
+
+    public int getPoolSize() {
+        return poolSize;
+    }
+
+    public ClientBuilder setPoolSize(int poolSize) {
+        this.poolSize = poolSize;
+        return this;
+    }
+
+    public boolean isKeepAlive() {
+        return keepAlive;
+    }
+
+    public ClientBuilder setKeepAlive(boolean keepAlive) {
+        this.keepAlive = keepAlive;
+        return this;
+    }
+
+    public boolean isPipeline() {
+        return pipeline;
+    }
+
+    public ClientBuilder setPipeline(boolean pipeline) {
+        this.pipeline = pipeline;
+        return this;
+    }
 
     public String getUri() {
         return uri;
@@ -48,8 +103,6 @@ public class ClientBuilder {
         this.timeoutSeconds = timeoutSeconds;
         return this;
     }
-
-    private int timeoutSeconds = 30;
 
     public String getHost() {
         return host;
@@ -120,9 +173,18 @@ public class ClientBuilder {
         /**
          * String host, int port, int pollTime, int requestBatchSize, int timeOutInMilliseconds, int poolSize, boolean autoFlush
          */
-        final HttpClient httpClient = QBit.factory().createHttpClient(host, port, pollTime, requestBatchSize, timeoutSeconds * 1000, poolSize, autoFlush, keepAlive, pipeline);
 
-        if (protocolBatchSize==-1) {
+        final HttpClient httpClient = QBit.factory().createHttpClient(
+                this.getHost(),
+                this.getPort(),
+                this.getRequestBatchSize(),
+                this.getTimeOutInMilliseconds(),
+                this.getPoolSize(),
+                this.isAutoFlush(),
+                this.getFlushInterval(),
+                this.isKeepAlive(), this.isPipeline());
+
+        if (protocolBatchSize == -1) {
             protocolBatchSize = requestBatchSize;
         }
 

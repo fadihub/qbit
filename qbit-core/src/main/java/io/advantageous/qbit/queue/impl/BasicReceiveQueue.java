@@ -1,3 +1,21 @@
+/*
+ * Copyright (c) 2015. Rick Hightower, Geoff Chandler
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *  		http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * QBit - The Microservice lib for Java : JSON, WebSocket, REST. Be The Web!
+ */
+
 package io.advantageous.qbit.queue.impl;
 
 import io.advantageous.qbit.queue.ReceiveQueue;
@@ -6,7 +24,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.LinkedTransferQueue;
 import java.util.concurrent.TimeUnit;
 
 import static org.boon.Boon.puts;
@@ -14,18 +31,19 @@ import static org.boon.Boon.puts;
 
 /**
  * This is not thread safe.
- * You use BasicQueue to create this in the one thread that you are going to use it.
+ * You use BasicQueue to createWithWorkers this in the one thread that you are going to use it.
  * Created by Richard on 9/8/14.
+ *
  * @author rhightower
-*/
+ */
 class BasicReceiveQueue<T> implements ReceiveQueue<T> {
 
     private final long waitTime;
     private final TimeUnit timeUnit;
     private final int batchSize;
+    private final BlockingQueue<Object> queue;
     private Object[] lastQueue = null;
     private int lastQueueIndex;
-    private final BlockingQueue<Object> queue;
 
     public BasicReceiveQueue(BlockingQueue<Object> queue, long waitTime, TimeUnit timeUnit, int batchSize) {
         this.queue = queue;
@@ -37,14 +55,14 @@ class BasicReceiveQueue<T> implements ReceiveQueue<T> {
     @Override
     public T pollWait() {
 
-        if (lastQueue!=null) {
+        if (lastQueue != null) {
 
             return getItemFromLocalQueue();
         }
 
         try {
 
-            Object o =  queue.poll(waitTime, timeUnit);
+            Object o = queue.poll(waitTime, timeUnit);
             return extractItem(o);
         } catch (InterruptedException e) {
             return null;
@@ -52,9 +70,13 @@ class BasicReceiveQueue<T> implements ReceiveQueue<T> {
     }
 
 
-
     private T getItemFromLocalQueue() {
-        T item = (T)lastQueue[lastQueueIndex];
+
+        if (lastQueue.length==0) {
+            return null;
+        }
+
+        T item = (T) lastQueue[lastQueueIndex];
         lastQueueIndex++;
 
         if (lastQueueIndex == lastQueue.length) {
@@ -62,18 +84,19 @@ class BasicReceiveQueue<T> implements ReceiveQueue<T> {
             lastQueue = null;
         }
         return item;
+
     }
 
 
     @Override
     public T poll() {
 
-        if (lastQueue!=null) {
+        if (lastQueue != null) {
 
             return getItemFromLocalQueue();
         }
 
-        Object o =   queue.poll();
+        Object o = queue.poll();
         return extractItem(o);
 
     }
@@ -81,13 +104,13 @@ class BasicReceiveQueue<T> implements ReceiveQueue<T> {
     @Override
     public T take() {
 
-        if (lastQueue!=null) {
+        if (lastQueue != null) {
 
             return getItemFromLocalQueue();
         }
 
         try {
-            Object o =  queue.take();
+            Object o = queue.take();
             return extractItem(o);
 
         } catch (InterruptedException e) {
@@ -104,7 +127,7 @@ class BasicReceiveQueue<T> implements ReceiveQueue<T> {
             //uts("batch size", lastQueue.length);
             return getItemFromLocalQueue();
         } else {
-            return (T)o;
+            return (T) o;
         }
     }
 
@@ -112,7 +135,7 @@ class BasicReceiveQueue<T> implements ReceiveQueue<T> {
     public Iterable<T> readBatch(int max) {
 
         T item = this.poll();
-        if (item==null) {
+        if (item == null) {
             return Collections.emptyList();
         } else {
             List<T> batch = new ArrayList<>();
@@ -127,5 +150,10 @@ class BasicReceiveQueue<T> implements ReceiveQueue<T> {
     @Override
     public Iterable<T> readBatch() {
         return readBatch(batchSize);
+    }
+
+    @Override
+    public int hashCode() {
+        return queue.hashCode();
     }
 }

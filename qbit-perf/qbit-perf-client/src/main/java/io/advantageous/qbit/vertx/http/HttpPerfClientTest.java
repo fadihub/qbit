@@ -1,6 +1,27 @@
+/*
+ * Copyright (c) 2015. Rick Hightower, Geoff Chandler
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *  		http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * QBit - The Microservice lib for Java : JSON, WebSocket, REST. Be The Web!
+ */
+
 package io.advantageous.qbit.vertx.http;
 
-import io.advantageous.qbit.http.*;
+import io.advantageous.qbit.http.client.HttpClient;
+import io.advantageous.qbit.http.client.HttpClientBuilder;
+import io.advantageous.qbit.http.request.HttpRequest;
+import io.advantageous.qbit.http.request.HttpRequestBuilder;
 import org.boon.core.Sys;
 
 import java.util.ArrayList;
@@ -15,14 +36,10 @@ import static org.boon.Boon.puts;
 public class HttpPerfClientTest {
 
 
+    private static final int REQUEST_COUNT = 20_000_000;
+    private static final int CLIENT_COUNT = 10;
     private static volatile LongAdder errorCount = new LongAdder();
-
     private static volatile LongAdder receivedCount = new LongAdder();
-
-    private static final  int REQUEST_COUNT = 20_000_000;
-
-
-    private static final  int CLIENT_COUNT = 10;
 
     public static void main(String... args) throws InterruptedException {
 
@@ -78,25 +95,24 @@ public class HttpPerfClientTest {
         puts("Params for client pollTime", pollTime);
 
 
-
         final long startTime;
 
         final HttpRequestBuilder httpRequestBuilder = new HttpRequestBuilder();
 
         final HttpRequest perfRequest = httpRequestBuilder
-                                        .setContentType("application/json")
-                                        .setMethod("GET").setUri("/perf/").addHeader("X-USER", "BOB")
-                                        .setTextResponse((code, mimeType, body) -> {
-                                            if (code != 200 || !body.equals("\"ok\"")) {
-                                                errorCount.increment();
-                                                return;
-                                            }
+                .setContentType("application/json")
+                .setMethod("GET").setUri("/perf/").addHeader("X-USER", "BOB")
+                .setTextReceiver((code, mimeType, body) -> {
+                    if (code != 200 || !body.equals("\"ok\"")) {
+                        errorCount.increment();
+                        return;
+                    }
 
-                                            receivedCount.increment();
+                    receivedCount.increment();
 
 
-                                        })
-                                        .build();
+                })
+                .build();
 
 
         final int countPerThread = REQUEST_COUNT / CLIENT_COUNT;
@@ -104,8 +120,7 @@ public class HttpPerfClientTest {
         final List<Thread> threads = new ArrayList<>(CLIENT_COUNT);
 
 
-
-        for (int threadNum=0; threadNum< CLIENT_COUNT; threadNum++) {
+        for (int threadNum = 0; threadNum < CLIENT_COUNT; threadNum++) {
 
 
             Thread thread = new Thread(new Runnable() {
@@ -123,8 +138,8 @@ public class HttpPerfClientTest {
 
                     Sys.sleep(5000);
 
-                    for (int index = 0; index<countPerThread; index++) {
-                         client.sendHttpRequest(perfRequest);
+                    for (int index = 0; index < countPerThread; index++) {
+                        client.sendHttpRequest(perfRequest);
 
                         if (index % 30_000 == 0) {
                             Sys.sleep(3_000);
@@ -137,14 +152,13 @@ public class HttpPerfClientTest {
 //                                    .setHost(host)
 //                                    .setPoolSize(poolSize).setRequestBatchSize(batchSize).
 //                                            setPollTime(pollTime).setAutoFlush(true)
-//                                    .build();
+//                                    .build().start();
 //                            client.start();
 //
 //
 //                        }
 
                     }
-
 
 
                     Sys.sleep(20_000);
@@ -156,8 +170,6 @@ public class HttpPerfClientTest {
 
 
         }
-
-
 
 
         for (Thread t : threads) {
@@ -189,9 +201,6 @@ public class HttpPerfClientTest {
         for (Thread t : threads) {
             t.join();
         }
-
-
-
 
 
         Sys.sleep(1000);

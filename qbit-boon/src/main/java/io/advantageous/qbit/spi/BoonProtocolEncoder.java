@@ -1,10 +1,28 @@
+/*
+ * Copyright (c) 2015. Rick Hightower, Geoff Chandler
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *  		http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * QBit - The Microservice lib for Java : JSON, WebSocket, REST. Be The Web!
+ */
+
 package io.advantageous.qbit.spi;
 
-import io.advantageous.qbit.util.MultiMap;
 import io.advantageous.qbit.message.Message;
 import io.advantageous.qbit.message.MethodCall;
 import io.advantageous.qbit.message.Response;
 import io.advantageous.qbit.service.Protocol;
+import io.advantageous.qbit.util.MultiMap;
 import org.boon.core.reflection.fields.FieldAccess;
 import org.boon.json.JsonSerializer;
 import org.boon.json.JsonSerializerFactory;
@@ -12,7 +30,6 @@ import org.boon.json.serializers.FieldFilter;
 import org.boon.primitive.CharBuf;
 
 import java.util.Collection;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -28,14 +45,12 @@ public class BoonProtocolEncoder implements ProtocolEncoder {
     private ThreadLocal<JsonSerializer> jsonSerializer = new ThreadLocal<JsonSerializer>() {
         @Override
         protected JsonSerializer initialValue() {
-            return new JsonSerializerFactory().addFilter(
-                    new FieldFilter() {
-                        @Override
-                        public boolean include(Object parent, FieldAccess fieldAccess) {
-                              return !fieldAccess.name().equals("metaClass");
-                        }
-                     }
-            ).create();
+            return new JsonSerializerFactory().addFilter(new FieldFilter() {
+                @Override
+                public boolean include(Object parent, FieldAccess fieldAccess) {
+                    return !fieldAccess.name().equals("metaClass");
+                }
+            }).create();
         }
     };
 
@@ -46,7 +61,9 @@ public class BoonProtocolEncoder implements ProtocolEncoder {
             CharBuf buf = CharBuf.createCharBuf(1000);
 
             return buf;
-        };
+        }
+
+        ;
     };
 
     @Override
@@ -70,16 +87,16 @@ public class BoonProtocolEncoder implements ProtocolEncoder {
 
         buf.addChar(PROTOCOL_MARKER);
         buf.addChar(PROTOCOL_VERSION_1_GROUP);
-        int index=0;
+        int index = 0;
 
-        for (Message<Object> message : messages) {
+        for ( Message<Object> message : messages ) {
 
-            boolean encodeAddress = index==0;
+            boolean encodeAddress = index == 0;
 
-            if (message instanceof MethodCall) {
-                encodeAsString(buf, (MethodCall<Object>) message, encodeAddress);
-            } else if (message instanceof Response) {
-                encodeAsString(buf, (Response<Object>) message, encodeAddress);
+            if ( message instanceof MethodCall ) {
+                encodeAsString(buf, ( MethodCall<Object> ) message, encodeAddress);
+            } else if ( message instanceof Response ) {
+                encodeAsString(buf, ( Response<Object> ) message, encodeAddress);
             }
             buf.addChar(PROTOCOL_MESSAGE_SEPARATOR);
 
@@ -122,22 +139,22 @@ public class BoonProtocolEncoder implements ProtocolEncoder {
         buf.addChar(PROTOCOL_SEPARATOR);
         final Object body = methodCall.body();
         final JsonSerializer serializer = jsonSerializer.get();
-        if (body instanceof Iterable) {
-            Iterable iter = (Iterable) body;
-            for (Object bodyPart : iter) {
+        if ( body instanceof Iterable ) {
+            Iterable iter = ( Iterable ) body;
+            for ( Object bodyPart : iter ) {
 
                 serializer.serialize(buf, bodyPart);
                 buf.addChar(PROTOCOL_ARG_SEPARATOR);
             }
-        } else if (body instanceof Object[]) {
-            Object[] args = (Object[]) body;
+        } else if ( body instanceof Object[] ) {
+            Object[] args = ( Object[] ) body;
 
-            for (int index = 0; index < args.length; index++) {
-                Object bodyPart = args[index];
+            for ( int index = 0; index < args.length; index++ ) {
+                Object bodyPart = args[ index ];
                 serializer.serialize(buf, bodyPart);
                 buf.addChar(PROTOCOL_ARG_SEPARATOR);
             }
-        } else if (body != null) {
+        } else if ( body != null ) {
             serializer.serialize(buf, body);
         }
     }
@@ -172,7 +189,7 @@ public class BoonProtocolEncoder implements ProtocolEncoder {
         final Object body = response.body();
         final JsonSerializer serializer = jsonSerializer.get();
 
-        if (body != null) {
+        if ( body != null ) {
             serializer.serialize(buf, body);
         } else {
             buf.addNull();
@@ -181,24 +198,24 @@ public class BoonProtocolEncoder implements ProtocolEncoder {
 
     private void encodeHeadersAndParams(CharBuf buf, MultiMap<String, String> headerOrParams) {
 
-        if (headerOrParams == null) {
+        if ( headerOrParams == null ) {
             return;
         }
 
         final Map<? extends String, ? extends Collection<String>> map = headerOrParams.baseMap();
         final Set<? extends Map.Entry<? extends String, ? extends Collection<String>>> entries = map.entrySet();
-        for (Map.Entry<? extends String, ? extends Collection<String>> entry : entries) {
+        for ( Map.Entry<? extends String, ? extends Collection<String>> entry : entries ) {
 
             final Collection<String> values = entry.getValue();
 
-            if (values.size() == 0) {
+            if ( values.size() == 0 ) {
                 continue;
             }
 
             buf.add(entry.getKey());
             buf.addChar(Protocol.PROTOCOL_KEY_HEADER_DELIM);
 
-            for (String value : values) {
+            for ( String value : values ) {
                 buf.add(value);
                 buf.addChar(Protocol.PROTOCOL_VALUE_HEADER_DELIM);
             }

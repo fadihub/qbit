@@ -1,3 +1,21 @@
+/*
+ * Copyright (c) 2015. Rick Hightower, Geoff Chandler
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *  		http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * QBit - The Microservice lib for Java : JSON, WebSocket, REST. Be The Web!
+ */
+
 package io.advantageous.qbit.services.example.todo;
 
 import io.advantageous.qbit.QBit;
@@ -17,6 +35,7 @@ import static org.boon.Exceptions.die;
 
 /**
  * Created by rhightower on 10/24/14.
+ *
  * @author rhightower
  */
 public class TodoServiceWithQBitServiceTest {
@@ -33,19 +52,18 @@ public class TodoServiceWithQBitServiceTest {
     public void testCallbackWithObjectNameAndMethodName() {
 
 
-        Service service = QBit.factory().createService("/services", "/todo-service", new TodoService(), null);
+        Service service = QBit.factory().createService("/services", "/todo-service", new TodoService(), null, null).start();
+
 
         SendQueue<MethodCall<Object>> requests = service.requests();
 
         TodoItem todoItem = new TodoItem("call mom", "give mom a call", new Date());
-        MethodCall<Object> addMethodCall = QBit.factory().createMethodCallByNames("add", "/todo-service", "call1:localhost",
-                todoItem, null);
+        MethodCall<Object> addMethodCall = QBit.factory().createMethodCallByNames("add", "/todo-service", "call1:localhost", todoItem, null);
 
 
         requests.send(addMethodCall);
 
-        MethodCall<Object> listMethodCall = QBit.factory().createMethodCallByNames("list", "/todo-service", "call2:localhost",
-                todoItem, null);
+        MethodCall<Object> listMethodCall = QBit.factory().createMethodCallByNames("list", "/todo-service", "call2:localhost", todoItem, null);
 
         requests.sendAndFlush(listMethodCall);
 
@@ -77,19 +95,17 @@ public class TodoServiceWithQBitServiceTest {
     public void testCallbackWithAddress() {
 
 
-        Service service = QBit.factory().createService("/services", "/todo-service", new TodoService(), null);
+        Service service = QBit.factory().createService("/services", "/todo-service", new TodoService(), null, null).start();
 
         SendQueue<MethodCall<Object>> requests = service.requests();
 
         TodoItem todoItem = new TodoItem("call mom", "give mom a call", new Date());
-        MethodCall<Object> addMethodCall = QBit.factory().createMethodCallByAddress("/services/todo-service/add", "call1:localhost",
-                todoItem, null);
+        MethodCall<Object> addMethodCall = QBit.factory().createMethodCallByAddress("/services/todo-service/add", "call1:localhost", todoItem, null);
 
 
         requests.send(addMethodCall);
 
-        MethodCall<Object> listMethodCall = QBit.factory().createMethodCallByAddress("/services/todo-service/list", "call2:localhost",
-                todoItem, null);
+        MethodCall<Object> listMethodCall = QBit.factory().createMethodCallByAddress("/services/todo-service/list", "call2:localhost", todoItem, null);
 
         requests.sendAndFlush(listMethodCall);
 

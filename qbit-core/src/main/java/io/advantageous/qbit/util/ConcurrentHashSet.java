@@ -1,5 +1,6 @@
 /*
- * Copyright 2013-2014 Richard M. Hightower
+ * Copyright (c) 2015. Rick Hightower, Geoff Chandler
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -12,18 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
- * __________                              _____          __   .__
- * \______   \ ____   ____   ____   /\    /     \ _____  |  | _|__| ____    ____
- *  |    |  _//  _ \ /  _ \ /    \  \/   /  \ /  \\__  \ |  |/ /  |/    \  / ___\
- *  |    |   (  <_> |  <_> )   |  \ /\  /    Y    \/ __ \|    <|  |   |  \/ /_/  >
- *  |______  /\____/ \____/|___|  / \/  \____|__  (____  /__|_ \__|___|  /\___  /
- *         \/                   \/              \/     \/     \/       \//_____/
- *      ____.                     ___________   _____    ______________.___.
- *     |    |____ ___  _______    \_   _____/  /  _  \  /   _____/\__  |   |
- *     |    \__  \\  \/ /\__  \    |    __)_  /  /_\  \ \_____  \  /   |   |
- * /\__|    |/ __ \\   /  / __ \_  |        \/    |    \/        \ \____   |
- * \________(____  /\_/  (____  / /_______  /\____|__  /_______  / / ______|
- *               \/           \/          \/         \/        \/  \/
+ * QBit - The Microservice lib for Java : JSON, WebSocket, REST. Be The Web!
  */
 
 package io.advantageous.qbit.util;
@@ -36,9 +26,9 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Concurrent HashSet.
- * @author rhightower
  *
  * @param <T> type the sets hold
+ * @author rhightower
  */
 public class ConcurrentHashSet<T> implements Set<T> {
 

@@ -1,10 +1,29 @@
+/*
+ * Copyright (c) 2015. Rick Hightower, Geoff Chandler
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *  		http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * QBit - The Microservice lib for Java : JSON, WebSocket, REST. Be The Web!
+ */
+
 package io.advantageous.qbit.vertx.http;
 
 import io.advantageous.qbit.annotation.RequestMapping;
 import io.advantageous.qbit.annotation.RequestMethod;
 import io.advantageous.qbit.client.Client;
 import io.advantageous.qbit.client.ClientBuilder;
-import io.advantageous.qbit.http.*;
+import io.advantageous.qbit.http.client.HttpClient;
+import io.advantageous.qbit.http.client.HttpClientBuilder;
 import io.advantageous.qbit.server.ServiceServer;
 import io.advantageous.qbit.server.ServiceServerBuilder;
 import io.advantageous.qbit.service.Callback;
@@ -24,17 +43,9 @@ import static org.boon.Exceptions.die;
 public class LoadTestingTest {
 
     public static final int WARMUP = 10_000;
-    Client client;
-    ServiceServer server;
-    HttpClient httpClient;
-    ClientServiceInterface clientProxy;
     static volatile int callCount;
     static volatile int returnCount;
-    AtomicReference<String> pongValue;
-    boolean ok;
     static volatile int port = 5555;
-
-
     final Callback<String> callback = new Callback<String>() {
         @Override
         public void accept(String s) {
@@ -42,21 +53,12 @@ public class LoadTestingTest {
             returnCount++;
         }
     };
-
-
-    static interface ClientServiceInterface {
-        String ping(Callback<String> callback, String ping);
-    }
-
-    class MockService {
-
-        @RequestMapping(method = RequestMethod.POST)
-        public String ping(String ping) {
-            callCount++;
-            return ping + " pong";
-        }
-    }
-
+    Client client;
+    ServiceServer server;
+    HttpClient httpClient;
+    ClientServiceInterface clientProxy;
+    AtomicReference<String> pongValue;
+    boolean ok;
 
     //@Test
     public void warmup() throws Exception {
@@ -65,7 +67,7 @@ public class LoadTestingTest {
         final long startTime = System.currentTimeMillis();
 
 
-        for (int index=0; index< WARMUP; index++) {
+        for (int index = 0; index < WARMUP; index++) {
 
             clientProxy.ping(callback, "hi");
 
@@ -73,7 +75,7 @@ public class LoadTestingTest {
 
         client.flush();
 
-        while (returnCount < WARMUP ) {
+        while (returnCount < WARMUP) {
             Sys.sleep(10);
         }
 
@@ -97,10 +99,7 @@ public class LoadTestingTest {
         Sys.sleep(1000);
 
 
-
     }
-
-
 
     //@Test
     public void test100K() throws Exception {
@@ -118,7 +117,7 @@ public class LoadTestingTest {
         final long startTime = System.currentTimeMillis();
 
 
-        for (int index=0; index< 100_000; index++) {
+        for (int index = 0; index < 100_000; index++) {
 
             clientProxy.ping(callback, "hi");
 
@@ -127,7 +126,7 @@ public class LoadTestingTest {
 
         client.flush();
 
-        while (returnCount < 100_000 -1) {
+        while (returnCount < 100_000 - 1) {
             Sys.sleep(1);
         }
 
@@ -148,16 +147,13 @@ public class LoadTestingTest {
         puts(duration);
 
 
-
     }
-
-
-
 
     @Test
     public void test() throws Exception {
 
     }
+
     //@Test
     public void test1M() throws Exception {
 
@@ -171,11 +167,10 @@ public class LoadTestingTest {
         callCount = 0;
 
 
-
         final long startTime = System.currentTimeMillis();
 
 
-        for (int index=0; index< 1_000_000; index++) {
+        for (int index = 0; index < 1_000_000; index++) {
 
             clientProxy.ping(callback, "hi");
 
@@ -193,8 +188,6 @@ public class LoadTestingTest {
         puts("HERE                        ", callCount, returnCount);
 
 
-
-
         final long endTime = System.currentTimeMillis();
 
         ok = returnCount == callCount || die();
@@ -203,8 +196,6 @@ public class LoadTestingTest {
         final long duration = endTime - startTime;
 
         puts("DURATION 1", duration);
-
-
 
 
         returnCount = 0;
@@ -219,17 +210,15 @@ public class LoadTestingTest {
         ok = returnCount == callCount || die();
 
 
-
         final long startTime2 = System.currentTimeMillis();
 
 
-        for (int index=0; index< 5_000_000; index++) {
+        for (int index = 0; index < 5_000_000; index++) {
 
             clientProxy.ping(callback, "hi");
 
 
         }
-
 
 
         client.flush();
@@ -260,7 +249,7 @@ public class LoadTestingTest {
     @Before
     public void setup() throws Exception {
 
-        Sys.sleep(5000);
+        Sys.sleep(100);
         pongValue = new AtomicReference<>();
 
         httpClient = new HttpClientBuilder().setPort(port).build();
@@ -285,7 +274,6 @@ public class LoadTestingTest {
         Sys.sleep(200);
 
 
-
     }
 
     @After
@@ -303,7 +291,20 @@ public class LoadTestingTest {
         server = null;
         client = null;
         System.gc();
-        Sys.sleep(1000);
+        Sys.sleep(100);
 
+    }
+
+    static interface ClientServiceInterface {
+        String ping(Callback<String> callback, String ping);
+    }
+
+    class MockService {
+
+        @RequestMapping(method = RequestMethod.POST)
+        public String ping(String ping) {
+            callCount++;
+            return ping + " pong";
+        }
     }
 }

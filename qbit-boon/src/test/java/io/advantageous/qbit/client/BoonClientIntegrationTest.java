@@ -1,16 +1,36 @@
+/*
+ * Copyright (c) 2015. Rick Hightower, Geoff Chandler
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *  		http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * QBit - The Microservice lib for Java : JSON, WebSocket, REST. Be The Web!
+ */
+
 package io.advantageous.qbit.client;
 
 import io.advantageous.qbit.QBit;
-import io.advantageous.qbit.http.HttpClient;
-import io.advantageous.qbit.http.HttpRequest;
-import io.advantageous.qbit.http.WebSocketMessage;
+import io.advantageous.qbit.http.client.HttpClient;
+import io.advantageous.qbit.http.request.HttpRequest;
+import io.advantageous.qbit.http.websocket.WebSocket;
+import io.advantageous.qbit.http.websocket.WebSocketBuilder;
+import io.advantageous.qbit.http.websocket.WebSocketSender;
 import io.advantageous.qbit.message.MethodCall;
 import io.advantageous.qbit.message.Response;
-import io.advantageous.qbit.queue.ReceiveQueueListener;
 import io.advantageous.qbit.service.Callback;
 import io.advantageous.qbit.service.ServiceBundle;
 import io.advantageous.qbit.service.ServiceBundleBuilder;
 import org.boon.core.Sys;
+import org.boon.core.reflection.BeanUtils;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -18,6 +38,7 @@ import org.junit.Test;
 import java.util.List;
 import java.util.function.Consumer;
 
+import static io.advantageous.qbit.http.websocket.WebSocketBuilder.webSocketBuilder;
 import static org.boon.Boon.puts;
 import static org.boon.Exceptions.die;
 
@@ -25,63 +46,25 @@ public class BoonClientIntegrationTest {
 
     Client client;
     boolean httpStopCalled;
-
     boolean httpStartCalled;
-
-
     boolean httpSendWebSocketCalled;
-
     boolean httpFlushCalled;
-
     boolean httpPeriodicFlushCallbackCalled;
-
     boolean ok;
     volatile int sum;
-
     volatile Response<Object> response;
-
-
     ServiceBundle serviceBundle;
 
-
-    public static interface ServiceMockClientInterface {
-        void add(int a, int b);
-
-        void sum(Callback<Integer> callback);
-    }
-
-    public static class ServiceMock {
-        int sum;
-
-        public void add(int a, int b) {
-
-            sum = sum + a + b;
-        }
-
-        public int sum() {
-            return sum;
-        }
-
-    }
     @Before
     public void setUp() throws Exception {
 
-        client = new BoonClientFactory().create("/services",
-                new HttpClientMock() , 10);
+        client = new BoonClientFactory().create("/services", new HttpClientMock(), 10);
 
         client.start();
-
-
-        serviceBundle = new ServiceBundleBuilder().setAddress("/services").build();
+        serviceBundle = new ServiceBundleBuilder().setAddress("/services").buildAndStart();
         serviceBundle.addService(new ServiceMock());
         sum = 0;
-
-        serviceBundle.startReturnHandlerProcessor(new ReceiveQueueListener<Response<Object>>() {
-            @Override
-            public void receive(Response<Object> item) {
-                response = item;
-            }
-        });
+        serviceBundle.startReturnHandlerProcessor(item -> response = item);
     }
 
     @After
@@ -89,7 +72,6 @@ public class BoonClientIntegrationTest {
         client.flush();
         Sys.sleep(100);
         client.stop();
-
     }
 
     @Test
@@ -103,17 +85,15 @@ public class BoonClientIntegrationTest {
 
         serviceBundle.flush();
 
-        ((ClientProxy)mockService).clientProxyFlush();
+        ( ( ClientProxy ) mockService ).clientProxyFlush();
         Sys.sleep(100);
         serviceBundle.flush();
         Sys.sleep(100);
 
-        ok = httpSendWebSocketCalled || die();
-
+        ok = httpSendWebSocketCalled || die("Send called", httpSendWebSocketCalled);
 
 
     }
-
 
     @Test
     public void testCallBack() throws Exception {
@@ -126,7 +106,7 @@ public class BoonClientIntegrationTest {
         mockService.add(1, 2);
         mockService.sum(integer -> sum = integer);
 
-        ((ClientProxy)mockService).clientProxyFlush();
+        ( ( ClientProxy ) mockService ).clientProxyFlush();
 
         ok = httpSendWebSocketCalled || die();
 
@@ -135,6 +115,23 @@ public class BoonClientIntegrationTest {
 
     }
 
+    public static interface ServiceMockClientInterface {
+        void add(int a, int b);
+
+        void sum(Callback<Integer> callback);
+    }
+
+    public static class ServiceMock {
+        int sum;
+
+        public void add(int a, int b) {
+            sum = sum + a + b;
+        }
+
+        public int sum() {
+            return sum;
+        }
+    }
 
     private class HttpClientMock implements HttpClient {
 
@@ -146,34 +143,49 @@ public class BoonClientIntegrationTest {
 
         }
 
+
         @Override
-        public void sendWebSocketMessage(WebSocketMessage webSocketMessage) {
+        public WebSocket createWebSocket(final String uri) {
 
-            httpSendWebSocketCalled = true;
-            puts(webSocketMessage);
-            periodicFlushCallback.accept(null);
+            final WebSocketBuilder webSocketBuilder = webSocketBuilder().setRemoteAddress("test").setUri(uri).setBinary(false).setOpen(true);
 
-            final String body = webSocketMessage.body().toString();
+            final WebSocket webSocket = webSocketBuilder.build();
 
-            final List<MethodCall<Object>> methodCalls = QBit.factory().createProtocolParser().parseMethods(body);
+            final WebSocketSender webSocketSender = new WebSocketSender() {
+                @Override
+                public void sendText(final String body) {
 
-            serviceBundle.call(methodCalls);
 
-            serviceBundle.flush();
+                    httpSendWebSocketCalled = true;
+                    periodicFlushCallback.accept(null);
 
-            Sys.sleep(100);
 
-            if (response!=null) {
+                    final List<MethodCall<Object>> methodCalls = QBit.factory().createProtocolParser().parseMethods(body);
 
-                if (response.wasErrors()) {
-                    puts("FAILED RESPONSE",response);
-                } else {
-                    webSocketMessage.getSender().send(QBit.factory().createEncoder().encodeAsString(response));
+                    serviceBundle.call(methodCalls);
+
+                    serviceBundle.flush();
+
+                    Sys.sleep(100);
+
+                    if ( response != null ) {
+
+                        if ( response.wasErrors() ) {
+                            puts("FAILED RESPONSE", response);
+                        } else {
+                            String simulatedMessageFromServer = QBit.factory().createEncoder().encodeAsString(response);
+                            webSocket.onTextMessage(simulatedMessageFromServer);
+                        }
+                    } else {
+                        puts(response);
+                    }
+
                 }
-            } else {
-                puts(response);
-            }
+            };
 
+            BeanUtils.idx(webSocket, "networkSender", webSocketSender);
+
+            return webSocket;
         }
 
         @Override

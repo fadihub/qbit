@@ -1,16 +1,34 @@
+/*
+ * Copyright (c) 2015. Rick Hightower, Geoff Chandler
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *  		http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * QBit - The Microservice lib for Java : JSON, WebSocket, REST. Be The Web!
+ */
+
 package io.advantageous.qbit;
 
 import io.advantageous.qbit.annotation.RequestMapping;
 import io.advantageous.qbit.annotation.RequestParam;
 import io.advantageous.qbit.message.MethodCall;
 import io.advantageous.qbit.message.Response;
+import io.advantageous.qbit.message.impl.MethodCallImpl;
 import io.advantageous.qbit.queue.ReceiveQueue;
 import io.advantageous.qbit.service.Callback;
 import io.advantageous.qbit.service.Protocol;
 import io.advantageous.qbit.service.ServiceBundle;
 import io.advantageous.qbit.service.ServiceBundleBuilder;
 import io.advantageous.qbit.service.impl.ServiceBundleImpl;
-import io.advantageous.qbit.message.impl.MethodCallImpl;
 import io.advantageous.qbit.spi.BoonProtocolEncoder;
 import io.advantageous.qbit.spi.ProtocolEncoder;
 import io.advantageous.qbit.spi.RegisterBoonWithQBit;
@@ -56,15 +74,11 @@ public class IntegrationTestForRESTStyleCallsTest {
     ReceiveQueue<Response<Object>> responseReceiveQueue = null;
 
     Response<Object> response;
-
+    ProtocolEncoder encoder = new BoonProtocolEncoder();
     private Employee rick;
     private Employee diana;
     private Employee whitney;
-
     private String returnAddress = "clientIdAkaReturnAddress";
-
-
-    ProtocolEncoder encoder = new BoonProtocolEncoder();
     private Employee employee;
 
 
@@ -74,8 +88,8 @@ public class IntegrationTestForRESTStyleCallsTest {
 
         factory = QBit.factory();
 
-        serviceBundle = new ServiceBundleBuilder().setAddress("/root").build();
-        serviceBundleImpl = (ServiceBundleImpl) serviceBundle;
+        serviceBundle = new ServiceBundleBuilder().setAddress("/root").buildAndStart();
+        serviceBundleImpl = ( ServiceBundleImpl ) serviceBundle;
 
         responseReceiveQueue = serviceBundle.responses().receiveQueue();
 
@@ -123,8 +137,7 @@ public class IntegrationTestForRESTStyleCallsTest {
         serviceBundle.addService(employeeService);
 
 
-        call = factory.createMethodCallByAddress(addressToMethodCall,
-                returnAddress, rick, params);
+        call = factory.createMethodCallByAddress(addressToMethodCall, returnAddress, rick, params);
 
         serviceBundle.call(call);
         serviceBundle.flush();
@@ -148,8 +161,7 @@ public class IntegrationTestForRESTStyleCallsTest {
         serviceBundle.addService(employeeService);
 
 
-        call = factory.createMethodCallByAddress(addressToMethodCall,
-                returnAddress, rick, params);
+        call = factory.createMethodCallByAddress(addressToMethodCall, returnAddress, rick, params);
 
         doCall();
 
@@ -164,8 +176,7 @@ public class IntegrationTestForRESTStyleCallsTest {
 
         addressToMethodCall = "/root/employeeRest/employee/10";
 
-        call = factory.createMethodCallByAddress(addressToMethodCall,
-                returnAddress, "", params);
+        call = factory.createMethodCallByAddress(addressToMethodCall, returnAddress, "", params);
         doCall();
         response = responseReceiveQueue.pollWait();
 
@@ -184,14 +195,13 @@ public class IntegrationTestForRESTStyleCallsTest {
         puts("LEVEL", params.get("level"));
 
 
-        call = factory.createMethodCallByAddress(addressToMethodCall,
-                returnAddress, "", params);
+        call = factory.createMethodCallByAddress(addressToMethodCall, returnAddress, "", params);
         doCall();
         response = responseReceiveQueue.pollWait();
 
         puts("BODY", response.body());
 
-        Employee employee1 = (Employee) response.body();
+        Employee employee1 = ( Employee ) response.body();
         Boon.equalsOrDie(1000, employee1.level);
         Boon.equalsOrDie(rick.active, employee1.active);
 
@@ -199,8 +209,7 @@ public class IntegrationTestForRESTStyleCallsTest {
         /** Remove employee from Service */
         addressToMethodCall = "/root/employeeRest/employee/remove/";
 
-        call = factory.createMethodCallByAddress(addressToMethodCall,
-                returnAddress, Lists.list(rick.id), params);
+        call = factory.createMethodCallByAddress(addressToMethodCall, returnAddress, Lists.list(rick.id), params);
         doCall();
         response = responseReceiveQueue.pollWait();
 
@@ -211,8 +220,7 @@ public class IntegrationTestForRESTStyleCallsTest {
 
         addressToMethodCall = "/root/employeeRest/employee/10";
 
-        call = factory.createMethodCallByAddress(addressToMethodCall,
-                returnAddress, "", params);
+        call = factory.createMethodCallByAddress(addressToMethodCall, returnAddress, "", params);
         doCall();
         response = responseReceiveQueue.pollWait();
 
@@ -240,8 +248,7 @@ public class IntegrationTestForRESTStyleCallsTest {
         /** Promote employee from Service */
         String addressToMethodCall = "/root/employeeRest/employee/promote/100/10";
 
-        call = factory.createMethodCallByAddress(addressToMethodCall,
-                returnAddress, Lists.list(rick), params);
+        call = factory.createMethodCallByAddress(addressToMethodCall, returnAddress, Lists.list(rick), params);
         doCall();
         response = responseReceiveQueue.pollWait();
 
@@ -270,8 +277,7 @@ public class IntegrationTestForRESTStyleCallsTest {
         serviceBundle.addService(employeeService);
 
 
-        call = factory.createMethodCallByAddress(addressToMethodCall,
-                returnAddress, rick, params);
+        call = factory.createMethodCallByAddress(addressToMethodCall, returnAddress, rick, params);
 
 
         doCall();
@@ -281,8 +287,8 @@ public class IntegrationTestForRESTStyleCallsTest {
 
         Exceptions.requireNonNull(response);
 
-        if (response.body() instanceof  Exception) {
-            Exception ex = (Exception) response.body();
+        if ( response.body() instanceof Exception ) {
+            Exception ex = ( Exception ) response.body();
             ex.printStackTrace();
         }
 
@@ -296,8 +302,7 @@ public class IntegrationTestForRESTStyleCallsTest {
 
         addressToMethodCall = "/root/employeeRest/employeeRead";
 
-        call = factory.createMethodCallByAddress(addressToMethodCall,
-                returnAddress, "", params);
+        call = factory.createMethodCallByAddress(addressToMethodCall, returnAddress, "", params);
         doCall();
         response = responseReceiveQueue.pollWait();
 
@@ -317,8 +322,7 @@ public class IntegrationTestForRESTStyleCallsTest {
         serviceBundle.addService(employeeService);
 
 
-        call = factory.createMethodCallByAddress(addressToMethodCall,
-                returnAddress, "", params);
+        call = factory.createMethodCallByAddress(addressToMethodCall, returnAddress, "", params);
 
 
         doCall();
@@ -388,24 +392,30 @@ public class IntegrationTestForRESTStyleCallsTest {
 
     private void doCall() {
 
-        if (!Str.isEmpty(call.body())) {
+        if ( !Str.isEmpty(call.body()) ) {
             String qbitStringBody = encoder.encodeAsString(call);
-            puts("\nPROTOCOL\n",
-                    qbitStringBody.replace((char) Protocol.PROTOCOL_SEPARATOR, '\n')
-                            .replace((char) Protocol.PROTOCOL_ARG_SEPARATOR, '\n'),
-                    "\nPROTOCOL END\n"
-            );
+            puts("\nPROTOCOL\n", qbitStringBody.replace(( char ) Protocol.PROTOCOL_SEPARATOR, '\n').replace(( char ) Protocol.PROTOCOL_ARG_SEPARATOR, '\n'), "\nPROTOCOL END\n");
             call = factory.createMethodCallToBeParsedFromBody(null, null, null, null, qbitStringBody, null);
         }
 
-        if (params != null) {
-            MethodCallImpl impl = (MethodCallImpl) call;
+        if ( params != null ) {
+            MethodCallImpl impl = ( MethodCallImpl ) call;
 //            if (params != null)
 //                impl.params(params);
         }
         serviceBundle.call(call);
         serviceBundle.flush();
         Sys.sleep(100);
+    }
+
+    private void validateRick() {
+        employee = ( Employee ) response.body();
+        Boon.equalsOrDie(rick.id, employee.id);
+        Boon.equalsOrDie(rick.active, employee.active);
+        Boon.equalsOrDie(rick.firstName, employee.firstName);
+        Boon.equalsOrDie(rick.lastName, employee.lastName);
+        Boon.equalsOrDie(rick.salary.intValue(), employee.salary.intValue());
+
     }
 
     public static class Employee {
@@ -429,25 +439,25 @@ public class IntegrationTestForRESTStyleCallsTest {
         }
     }
 
-    @RequestMapping("/employeeRest/")
+    @RequestMapping( "/employeeRest/" )
     public static class EmployeeService {
         Map<Integer, Employee> map = new ConcurrentHashMap<>();
 
 
-        @RequestMapping("/employee/add")
+        @RequestMapping( "/employee/add" )
         public boolean addEmployee(Employee employee) {
             map.put(employee.id, employee);
             return true;
         }
 
 
-        @RequestMapping("/employee/search/")
+        @RequestMapping( "/employee/search/" )
         public Employee findEmployee(Employee employee) {
             return employee;
         }
 
 
-        @RequestMapping("/employee/promote/{1}/{0}")
+        @RequestMapping( "/employee/promote/{1}/{0}" )
         public boolean promoteEmployee(int id, int level) {
 
             final Employee employee = map.get(id);
@@ -460,22 +470,20 @@ public class IntegrationTestForRESTStyleCallsTest {
         }
 
 
-        @RequestMapping("/employee/{0}")
+        @RequestMapping( "/employee/{0}" )
         public Employee readEmployee(int id) {
             return map.get(id);
         }
 
 
-        @RequestMapping("/employeeRead")
-        public Employee readEmployeeWithParamBindings(
-                @RequestParam(value = "idOfEmployee") int id) {
+        @RequestMapping( "/employeeRead" )
+        public Employee readEmployeeWithParamBindings(@RequestParam( value = "idOfEmployee" ) int id) {
             return map.get(id);
         }
 
 
-        @RequestMapping("/addEmployeeWithParams")
-        public boolean addEmployeeWithParams(
-                @RequestParam(required = true, value = "idOfEmployee") int id, Employee employee) {
+        @RequestMapping( "/addEmployeeWithParams" )
+        public boolean addEmployeeWithParams(@RequestParam( required = true, value = "idOfEmployee" ) int id, Employee employee) {
 
             puts("addEmployeeWithParams CALLED", id, employee);
             map.put(id, employee);
@@ -483,38 +491,28 @@ public class IntegrationTestForRESTStyleCallsTest {
 
         }
 
-        @RequestMapping("/employee/remove/")
+        @RequestMapping( "/employee/remove/" )
         public boolean removeEmployee(int id) {
             map.remove(id);
             return true;
         }
 
 
-        @RequestMapping("/employee/error/")
+        @RequestMapping( "/employee/error/" )
         public boolean throwAnExceptionNoMatterWhat() {
             die("YOU ARE NOT THE BOSS OF ME JAVA!");
             return true;
         }
 
-        @RequestMapping("/async/")
+        @RequestMapping( "/async/" )
         public void async(Callback<String> handler) {
             handler.accept("hi mom");
         }
 
-        @RequestMapping("/asyncHelloWorld/")
+        @RequestMapping( "/asyncHelloWorld/" )
         public void asyncHelloWorld(Callback<String> handler, String arg) {
             handler.accept("Hello " + arg);
         }
-
-    }
-
-    private void validateRick() {
-        employee = (Employee) response.body();
-        Boon.equalsOrDie(rick.id, employee.id);
-        Boon.equalsOrDie(rick.active, employee.active);
-        Boon.equalsOrDie(rick.firstName, employee.firstName);
-        Boon.equalsOrDie(rick.lastName, employee.lastName);
-        Boon.equalsOrDie(rick.salary.intValue(), employee.salary.intValue());
 
     }
 

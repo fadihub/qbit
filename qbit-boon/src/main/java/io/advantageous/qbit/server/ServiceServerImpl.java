@@ -1,20 +1,45 @@
+/*
+ * Copyright (c) 2015. Rick Hightower, Geoff Chandler
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *  		http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * QBit - The Microservice lib for Java : JSON, WebSocket, REST. Be The Web!
+ */
+
 package io.advantageous.qbit.server;
 
-import io.advantageous.qbit.http.*;
+import io.advantageous.qbit.GlobalConstants;
+import io.advantageous.qbit.http.request.HttpRequest;
+import io.advantageous.qbit.http.server.HttpServer;
+import io.advantageous.qbit.http.server.websocket.WebSocketMessage;
 import io.advantageous.qbit.json.JsonMapper;
 import io.advantageous.qbit.message.MethodCall;
 import io.advantageous.qbit.message.Request;
 import io.advantageous.qbit.message.Response;
-import io.advantageous.qbit.queue.*;
+import io.advantageous.qbit.queue.ReceiveQueueListener;
 import io.advantageous.qbit.service.ServiceBundle;
 import io.advantageous.qbit.spi.ProtocolEncoder;
 import io.advantageous.qbit.spi.ProtocolParser;
+import io.advantageous.qbit.system.QBitSystemManager;
 import org.boon.core.Sys;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+
+import static org.boon.Boon.puts;
 
 /**
  * Created by rhightower on 10/22/14.
@@ -24,16 +49,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class ServiceServerImpl implements ServiceServer {
 
 
+    protected final int batchSize;
     private final Logger logger = LoggerFactory.getLogger(ServiceServerImpl.class);
-    private final boolean debug = logger.isDebugEnabled();
-
-
-
+    private final boolean debug = false || GlobalConstants.DEBUG || logger.isDebugEnabled();
+    private final QBitSystemManager systemManager;
     protected WebSocketServiceServerHandler webSocketHandler;
     protected HttpRequestServiceServerHandler httpRequestServerHandler;
-
     protected int timeoutInSeconds = 30;
-    protected final int batchSize;
     protected ProtocolEncoder encoder;
     protected HttpServer httpServer;
     protected ServiceBundle serviceBundle;
@@ -42,21 +64,12 @@ public class ServiceServerImpl implements ServiceServer {
     protected Object context = Sys.contextToHold();
 
 
-
-
     private AtomicBoolean stop = new AtomicBoolean();
 
 
+    public ServiceServerImpl(final HttpServer httpServer, final ProtocolEncoder encoder, final ProtocolParser parser, final ServiceBundle serviceBundle, final JsonMapper jsonMapper, final int timeOutInSeconds, final int numberOfOutstandingRequests, final int batchSize, final int flushInterval, final QBitSystemManager systemManager) {
 
-
-    public ServiceServerImpl(final HttpServer httpServer,
-                             final ProtocolEncoder encoder,
-                             final ProtocolParser parser,
-                             final ServiceBundle serviceBundle,
-                             final JsonMapper jsonMapper,
-                             final int timeOutInSeconds,
-                             final int numberOfOutstandingRequests,
-                             final int batchSize) {
+        this.systemManager = systemManager;
         this.encoder = encoder;
         this.parser = parser;
         this.httpServer = httpServer;
@@ -66,14 +79,13 @@ public class ServiceServerImpl implements ServiceServer {
         this.batchSize = batchSize;
 
         webSocketHandler = new WebSocketServiceServerHandler(batchSize, serviceBundle, encoder, parser);
-        httpRequestServerHandler = new HttpRequestServiceServerHandler(this.timeoutInSeconds, this.encoder, this.parser, serviceBundle, jsonMapper, numberOfOutstandingRequests);
+        httpRequestServerHandler = new HttpRequestServiceServerHandler(this.timeoutInSeconds, this.encoder, this.parser, serviceBundle, jsonMapper, numberOfOutstandingRequests, flushInterval);
     }
-
-
 
 
     @Override
     public void start() {
+
 
         stop.set(false);
 
@@ -83,22 +95,37 @@ public class ServiceServerImpl implements ServiceServer {
         httpServer.setHttpRequestsIdleConsumer(httpRequestServerHandler::httpRequestQueueIdle);
 
         httpServer.setWebSocketIdleConsume(webSocketHandler::webSocketQueueIdle);
+
+
+        serviceBundle.start();
+        startResponseQueueListener();
         httpServer.start();
 
-
-        startResponseQueueListener();
 
     }
 
     public void stop() {
 
-        serviceBundle.stop();
+        try {
+            serviceBundle.stop();
+        } catch ( Exception ex ) {
+            if ( debug ) logger.debug("Unable to cleanly shutdown bundle", ex);
+        }
+
+        try {
+            httpServer.stop();
+        } catch ( Exception ex ) {
+            if ( debug ) logger.debug("Unable to cleanly shutdown httpServer", ex);
+        }
+
+
+        if ( systemManager != null ) systemManager.serviceShutDown();
 
     }
 
 
     /**
-     * Sets up the response queue listener so we can send responses
+     * Sets up the response queue listener so we can sendText responses
      * to HTTP / WebSocket end points.
      */
     private void startResponseQueueListener() {
@@ -113,14 +140,19 @@ public class ServiceServerImpl implements ServiceServer {
     private ReceiveQueueListener<Response<Object>> createResponseQueueListener() {
         return new ReceiveQueueListener<Response<Object>>() {
 
+
             List<Response<Object>> responseBatch = new ArrayList<>();
 
             @Override
             public void receive(final Response<Object> response) {
 
+                if ( debug ) {
+                    puts("createResponseQueueListener() Received a response", response);
+                }
+
                 responseBatch.add(response);
 
-                if (responseBatch.size() >= batchSize) {
+                if ( responseBatch.size() >= batchSize ) {
                     handleResponseFromServiceBundle(new ArrayList<>(responseBatch));
                     responseBatch.clear();
                 }
@@ -130,7 +162,6 @@ public class ServiceServerImpl implements ServiceServer {
 
             @Override
             public void limit() {
-
 
 
                 handleResponseFromServiceBundle(new ArrayList<>(responseBatch));
@@ -164,7 +195,6 @@ public class ServiceServerImpl implements ServiceServer {
     }
 
 
-
     /**
      * Handle a response from the server.
      *
@@ -173,15 +203,14 @@ public class ServiceServerImpl implements ServiceServer {
     private void handleResponseFromServiceBundle(final List<Response<Object>> responses) {
 
 
-
-        for (Response<Object> response : responses) {
+        for ( Response<Object> response : responses ) {
 
             final Request<Object> request = response.request();
 
-            if (request instanceof MethodCall) {
+            if ( request instanceof MethodCall ) {
 
 
-                final MethodCall<Object> methodCall = ((MethodCall<Object>) request);
+                final MethodCall<Object> methodCall = ( ( MethodCall<Object> ) request );
                 final Request<Object> originatingRequest = methodCall.originatingRequest();
 
                 handleResponseFromServiceBundle(response, originatingRequest);
@@ -195,20 +224,21 @@ public class ServiceServerImpl implements ServiceServer {
 
         /* TODO Since websockets can be for many requests, we need a counter of some sort. */
 
-        if (originatingRequest instanceof HttpRequest) {
+        if ( originatingRequest instanceof HttpRequest ) {
 
-            if (originatingRequest.isHandled()) {
+            if ( originatingRequest.isHandled() ) {
                 return; // the operation timed out
             }
             originatingRequest.handled(); //Let others know that it is handled.
 
 
 
-            httpRequestServerHandler.handleResponseFromServiceToHttpResponse(response, (HttpRequest) originatingRequest);
-        } else if (originatingRequest instanceof WebSocketMessage) {
+
+            httpRequestServerHandler.handleResponseFromServiceToHttpResponse(response, ( HttpRequest ) originatingRequest);
+        } else if ( originatingRequest instanceof WebSocketMessage ) {
             originatingRequest.handled(); //Let others know that it is handled.
 
-            webSocketHandler.handleResponseFromServiceBundleToWebSocketSender(response, (WebSocketMessage) originatingRequest);
+            webSocketHandler.handleResponseFromServiceBundleToWebSocketSender(response, ( WebSocketMessage ) originatingRequest);
         } else {
 
             throw new IllegalStateException("Unknown response " + response);
@@ -216,34 +246,38 @@ public class ServiceServerImpl implements ServiceServer {
     }
 
     @Override
-    public void flush() {
+    public ServiceServer flush() {
         this.serviceBundle.flush();
-    }
-
-
-
-    @Override
-    public void initServices(Iterable services) {
-
-
-        for (Object service : services) {
-            if (debug) logger.debug("registering service: " + service.getClass().getName());
-            serviceBundle.addService(service);
-            httpRequestServerHandler.addRestSupportFor(service.getClass(), serviceBundle.address());
-        }
-
+        return this;
     }
 
 
     @Override
-    public void initServices(Object... services) {
+    public ServiceServer initServices(Iterable services) {
 
 
-        for (Object service : services) {
-            if (debug) logger.debug("registering service: " + service.getClass().getName());
+        for ( Object service : services ) {
+            if ( debug ) logger.debug("registering service: " + service.getClass().getName());
             serviceBundle.addService(service);
             httpRequestServerHandler.addRestSupportFor(service.getClass(), serviceBundle.address());
         }
+
+        return this;
+
+    }
+
+
+    @Override
+    public ServiceServer initServices(Object... services) {
+
+
+        for ( Object service : services ) {
+            if ( debug ) logger.debug("registering service: " + service.getClass().getName());
+            serviceBundle.addService(service);
+            httpRequestServerHandler.addRestSupportFor(service.getClass(), serviceBundle.address());
+        }
+
+        return this;
 
     }
 

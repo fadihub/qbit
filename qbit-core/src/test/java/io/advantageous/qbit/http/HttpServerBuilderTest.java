@@ -1,9 +1,33 @@
+/*
+ * Copyright (c) 2015. Rick Hightower, Geoff Chandler
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *  		http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * QBit - The Microservice lib for Java : JSON, WebSocket, REST. Be The Web!
+ */
+
 package io.advantageous.qbit.http;
 
 import io.advantageous.qbit.Factory;
+import io.advantageous.qbit.http.config.HttpServerOptions;
+import io.advantageous.qbit.http.request.HttpRequest;
+import io.advantageous.qbit.http.server.HttpServer;
+import io.advantageous.qbit.http.server.HttpServerBuilder;
+import io.advantageous.qbit.http.server.impl.SimpleHttpServer;
+import io.advantageous.qbit.http.server.websocket.WebSocketMessage;
+import io.advantageous.qbit.queue.QueueBuilder;
 import io.advantageous.qbit.spi.FactorySPI;
-import io.advantageous.qbit.spi.HttpClientFactory;
-import io.advantageous.qbit.spi.HttpServerFactory;
+import io.advantageous.qbit.system.QBitSystemManager;
 import org.boon.core.Sys;
 import org.junit.Before;
 import org.junit.Test;
@@ -11,7 +35,6 @@ import org.junit.Test;
 import java.util.function.Consumer;
 
 import static org.boon.Exceptions.die;
-import static org.junit.Assert.*;
 
 public class HttpServerBuilderTest {
 
@@ -25,7 +48,7 @@ public class HttpServerBuilderTest {
     @Before
     public void setUp() throws Exception {
 
-        objectUnderTest =new HttpServerBuilder();
+        objectUnderTest = new HttpServerBuilder();
 
         webSocketMessageConsumer = new Consumer<WebSocketMessage>() {
             @Override
@@ -44,58 +67,15 @@ public class HttpServerBuilderTest {
         FactorySPI.setFactory(new Factory() {
 
             @Override
-            public HttpServer createHttpServer(String host, int port, boolean manageQueues, int pollTime, int requestBatchSize, int flushInterval,
-                                               int maxRequests) {
-                return FactorySPI.getHttpServerFactory().create(host, port, manageQueues, pollTime, requestBatchSize, flushInterval, maxRequests);
+            public HttpServer createHttpServer(HttpServerOptions options, QueueBuilder requestQueueBuilder,
+                                               QueueBuilder rspQB,
+                                               QueueBuilder webSocketMessageQueueBuilder, QBitSystemManager systemManager) {
+                return null;
             }
         });
 
-        FactorySPI.setHttpServerFactory(new HttpServerFactory() {
-
-            @Override
-            public HttpServer create(String host, int port,
-                                     boolean manageQueues,
-                                     int pollTime,
-                                     int requestBatchSize,
-                                     int flushInterval, int maxRequests) {
-                return new HttpServer() {
-                    @Override
-                    public void setWebSocketMessageConsumer(Consumer<WebSocketMessage> webSocketMessageConsumer) {
-
-                    }
-
-                    @Override
-                    public void setWebSocketCloseConsumer(Consumer<WebSocketMessage> webSocketMessageConsumer) {
-
-                    }
-
-                    @Override
-                    public void setHttpRequestConsumer(Consumer<HttpRequest> httpRequestConsumer) {
-
-                    }
-
-                    @Override
-                    public void setHttpRequestsIdleConsumer(Consumer<Void> idleConsumer) {
-
-                    }
-
-                    @Override
-                    public void setWebSocketIdleConsume(Consumer<Void> idleConsumer) {
-
-                    }
-
-                    @Override
-                    public void start() {
-
-                    }
-
-                    @Override
-                    public void stop() {
-
-                    }
-                };
-            }
-        });
+        FactorySPI.setHttpServerFactory((options, requestQueueBuilder, resQB,
+                                         webSocketMessageQueueBuilder, systemManager) -> new SimpleHttpServer());
 
         Sys.sleep(100);
 
@@ -113,22 +93,15 @@ public class HttpServerBuilderTest {
         ok = objectUnderTest.setPipeline(true).isPipeline() || die();
         ok = !objectUnderTest.setPipeline(false).isPipeline() || die();
 
-        ok = objectUnderTest.setPollTime(7).getPollTime()==7 || die();
-        ok = objectUnderTest.setPort(9090).getPort()==9090 || die();
-        ok = objectUnderTest.setPort(8080).getPort()==8080 || die();
+        ok = objectUnderTest.setPollTime(7).getPollTime() == 7 || die();
+        ok = objectUnderTest.setPort(9090).getPort() == 9090 || die();
+        ok = objectUnderTest.setPort(8080).getPort() == 8080 || die();
 
-        ok = objectUnderTest.setFlushInterval(909).getFlushInterval()==909 || die();
-        ok = objectUnderTest.setFlushInterval(808).getFlushInterval()==808 || die();
+        ok = objectUnderTest.setFlushInterval(909).getFlushInterval() == 909 || die();
+        ok = objectUnderTest.setFlushInterval(808).getFlushInterval() == 808 || die();
 
-        ok = objectUnderTest.setRequestBatchSize(13).getRequestBatchSize()==13
+        ok = objectUnderTest.setRequestBatchSize(13).getRequestBatchSize() == 13
                 || die();
-
-        ok = objectUnderTest.setHttpRequestConsumer(httpRequestConsumer)
-                .getHttpRequestConsumer()==httpRequestConsumer || die();
-
-
-        ok = objectUnderTest.setWebSocketMessageConsumer(webSocketMessageConsumer)
-                .getWebSocketMessageConsumer()==webSocketMessageConsumer || die();
 
         objectUnderTest.build();
 

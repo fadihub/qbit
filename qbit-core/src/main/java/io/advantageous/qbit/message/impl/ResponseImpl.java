@@ -1,3 +1,21 @@
+/*
+ * Copyright (c) 2015. Rick Hightower, Geoff Chandler
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *  		http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * QBit - The Microservice lib for Java : JSON, WebSocket, REST. Be The Web!
+ */
+
 package io.advantageous.qbit.message.impl;
 
 import io.advantageous.qbit.annotation.JsonIgnore;
@@ -39,20 +57,6 @@ public class ResponseImpl<T> implements Response<T> {
     }
 
 
-
-    public static Response<Object> response(long id, long timestamp, String address, String returnAddress, Object body, Request<Object> requestForResponse, boolean errors) {
-
-        return new ResponseImpl<>(id, timestamp, address, returnAddress, null, body, requestForResponse, errors);
-
-    }
-
-
-    public static Response<Object> response(long id, long timestamp, String address, String returnAddress, Object body, Request<Object> requestForResponse) {
-
-        return new ResponseImpl<>(id, timestamp, address, returnAddress, null, body, requestForResponse, false);
-
-    }
-
     public ResponseImpl(MethodCall<Object> methodCall, Throwable ex) {
 
         this.returnAddress = methodCall.returnAddress();
@@ -72,9 +76,10 @@ public class ResponseImpl<T> implements Response<T> {
         }
         this.errors = true;
         this.params = null;
-        this.request =  methodCall;
+        this.request = methodCall;
 
     }
+
 
     public ResponseImpl(long id, long timestamp, String address, String returnAddress, Map<String, Object> params,
                         Object body, Request<Object> request, boolean errors) {
@@ -88,12 +93,29 @@ public class ResponseImpl<T> implements Response<T> {
         this.errors = errors;
     }
 
+    public static Response<Object> response(long id, long timestamp, String address, String returnAddress, Object body, Request<Object> requestForResponse, boolean errors) {
+
+        return new ResponseImpl<>(id, timestamp, address, returnAddress, null, body, requestForResponse, errors);
+
+    }
+
+    public static Response<Object> response(long id, long timestamp, String address, String returnAddress, Object body, Request<Object> requestForResponse) {
+
+        return new ResponseImpl<>(id, timestamp, address, returnAddress, null, body, requestForResponse, false);
+
+    }
+
+    public static Response<Object> response(MethodCall<Object> methodCall, Object returnValue) {
+
+        ResponseImpl<Object> response = new ResponseImpl<>(methodCall, returnValue);
+
+        return response;
+    }
 
     @Override
     public long id() {
         return id;
     }
-
 
     @Override
     public T body() {
@@ -170,12 +192,5 @@ public class ResponseImpl<T> implements Response<T> {
                 ", params=" + params +
                 ", body=" + body +
                 '}';
-    }
-
-    public static Response<Object> response(MethodCall<Object> methodCall, Object returnValue) {
-
-        ResponseImpl<Object> response = new ResponseImpl<>(methodCall, returnValue);
-
-        return response;
     }
 }

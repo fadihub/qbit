@@ -1,10 +1,27 @@
+/*
+ * Copyright (c) 2015. Rick Hightower, Geoff Chandler
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *  		http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * QBit - The Microservice lib for Java : JSON, WebSocket, REST. Be The Web!
+ */
+
 package io.advantageous.qbit.example.queues;
 
 import io.advantageous.qbit.queue.Queue;
 import io.advantageous.qbit.queue.QueueBuilder;
 import io.advantageous.qbit.queue.ReceiveQueue;
 import io.advantageous.qbit.queue.SendQueue;
-import io.advantageous.qbit.queue.impl.BasicQueue;
 import org.boon.core.Sys;
 
 import java.util.ArrayList;
@@ -34,25 +51,16 @@ public class QBitQueueMultiWriterMultiReader {
 
     static final Queue<Integer> queue = new QueueBuilder()
             .setBatchSize(100_000)
-            .setPollWait(100).setSize(6).setTryTransfer(true).setLinkTransferQueue().setCheckEvery(1000)
+            .setPollWait(100).setSize(6).setCheckIfBusy(true).setLinkTransferQueue().setCheckEvery(1000)
             .build();
-
-    static ExecutorService executorService = Executors.newCachedThreadPool();
-
     static final int status = 100_000_000;
-
     static final int sleepEvery = 1_000_000_000;
-
     static final int numReaders = 1;
-
     static final int numWriters = 5;
-
     static final int amountOfMessagesToSend = 100_000_000; //Each
-
     static final List<Future<Long>> receiverJobs = new ArrayList<>();
-
     static final List<Future<?>> writerJobs = new ArrayList<>();
-
+    static ExecutorService executorService = Executors.newCachedThreadPool();
     static AtomicBoolean stop = new AtomicBoolean();
 
 
@@ -184,7 +192,7 @@ public class QBitQueueMultiWriterMultiReader {
 
         executorService.shutdown();
 
-        System.out.println("RATE " + ((numWriters * amountOfMessagesToSend) / (duration / 1000)) + " per second" );
+        System.out.println("RATE " + ((numWriters * amountOfMessagesToSend) / (duration / 1000)) + " per second");
 
         //12,500,000
         //25,000,000

@@ -1,3 +1,21 @@
+/*
+ * Copyright (c) 2015. Rick Hightower, Geoff Chandler
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *  		http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * QBit - The Microservice lib for Java : JSON, WebSocket, REST. Be The Web!
+ */
+
 package io.advantageous.qbit.service.bundle.example.todo;
 
 import io.advantageous.qbit.QBit;
@@ -31,25 +49,20 @@ public class TodoServiceWithServiceBundleTest {
     @Test
     public void testWithBundleUsingAddress() {
 
-        final ServiceBundle serviceBundle = new ServiceBundleBuilder().setAddress("/services").build();
+        final ServiceBundle serviceBundle = new ServiceBundleBuilder().setAddress("/services").buildAndStart();
 
         serviceBundle.addService(new TodoService());
 
 
-        Todo todoItem = new Todo("call mom", "give mom a call",
-                new Date());
+        Todo todoItem = new Todo("call mom", "give mom a call", new Date());
 
-        MethodCall<Object> addMethod = QBit.factory()
-                .createMethodCallByAddress("/services/todo-manager/add", "client1",
-                todoItem, null);
+        MethodCall<Object> addMethod = QBit.factory().createMethodCallByAddress("/services/todo-manager/add", "client1", todoItem, null);
 
 
         serviceBundle.call(addMethod);
 
 
-        MethodCall<Object> listMethod = QBit.factory()
-                .createMethodCallByAddress("/services/todo-manager/list", "client1",
-                null, null);
+        MethodCall<Object> listMethod = QBit.factory().createMethodCallByAddress("/services/todo-manager/list", "client1", null, null);
 
         serviceBundle.call(listMethod);
 
@@ -78,26 +91,23 @@ public class TodoServiceWithServiceBundleTest {
         }
 
 
-
     }
 
 
     @Test
     public void testWithBundleUsingObjectName() {
-        final ServiceBundle serviceBundle = new ServiceBundleBuilder().setAddress("/services").build();
+        final ServiceBundle serviceBundle = new ServiceBundleBuilder().setAddress("/services").buildAndStart();
 
         serviceBundle.addService(new TodoService());
 
 
         Todo todoItem = new Todo("call mom", "give mom a call", new Date());
-        MethodCall<Object> addMethodCall = QBit.factory().createMethodCallByNames("add", "/services/todo-manager", "call1:localhost",
-                todoItem, null);
+        MethodCall<Object> addMethodCall = QBit.factory().createMethodCallByNames("add", "/services/todo-manager", "call1:localhost", todoItem, null);
 
         serviceBundle.call(addMethodCall);
 
 
-        MethodCall<Object> listMethodCall = QBit.factory().createMethodCallByNames("list", "/services/todo-manager", "call2:localhost",
-                todoItem, null);
+        MethodCall<Object> listMethodCall = QBit.factory().createMethodCallByNames("list", "/services/todo-manager", "call2:localhost", todoItem, null);
 
         serviceBundle.call(listMethodCall);
 
@@ -130,25 +140,22 @@ public class TodoServiceWithServiceBundleTest {
     }
 
 
-
     @Test
     public void testWithBundleUsingAddressRequestMappings() {
-        final ServiceBundle serviceBundle = new ServiceBundleBuilder().setAddress("/services").build();
+        final ServiceBundle serviceBundle = new ServiceBundleBuilder().setAddress("/services").buildAndStart();
 
         serviceBundle.addService(new TodoService());
 
 
         Todo todoItem = new Todo("call mom", "give mom a call", new Date());
 
-        MethodCall<Object> addMethod = QBit.factory().createMethodCallByAddress("/services/todo-manager/todo", "client1",
-                todoItem, null);
+        MethodCall<Object> addMethod = QBit.factory().createMethodCallByAddress("/services/todo-manager/todo", "client1", todoItem, null);
 
 
         serviceBundle.call(addMethod);
 
 
-        MethodCall<Object> listMethod = QBit.factory().createMethodCallByAddress("/services/todo-manager/todo/list/", "client1",
-                null, null);
+        MethodCall<Object> listMethod = QBit.factory().createMethodCallByAddress("/services/todo-manager/todo/list/", "client1", null, null);
 
         serviceBundle.call(listMethod);
 
@@ -175,7 +182,6 @@ public class TodoServiceWithServiceBundleTest {
         } else {
             die("Response was not a list", body);
         }
-
 
 
     }

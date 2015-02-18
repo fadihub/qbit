@@ -1,39 +1,31 @@
+/*
+ * Copyright (c) 2015. Rick Hightower, Geoff Chandler
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *  		http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * QBit - The Microservice lib for Java : JSON, WebSocket, REST. Be The Web!
+ */
+
 package io.advantageous.qbit.util;
 
 import java.util.*;
 
 /**
  * Created by Richard on 9/26/14.
+ *
  * @author rhightower
  */
 public interface MultiMap<K, V> extends Iterable<Map.Entry<K, Collection<V>>>, Map<K, V> {
-    Iterator<Entry<K, Collection<V>>> iterator();
-
-    void add(K key, V v);
-
-    V getFirst(K key);
-
-    Iterable<V> getAll(K key);
-
-    boolean removeValueFrom(K key, V v);
-
-    boolean removeMulti(K key);
-
-    Iterable<K> keySetMulti();
-
-    Iterable<V> valueMulti();
-
-    void putAll(MultiMap<K, V> params);
-
-    Map<? extends K, ? extends Collection<V>> baseMap();
-
-    public V getSingleObject(K name);
-
-    @SuppressWarnings("unchecked")
-    static <K, V> MultiMap<K, V> empty() {
-        return EMPTY;
-    }
-
     static final MultiMap EMPTY = new MultiMap() {
 
         private Map empty = Collections.emptyMap();
@@ -151,5 +143,87 @@ public interface MultiMap<K, V> extends Iterable<Map.Entry<K, Collection<V>>>, M
             return empty.entrySet();
         }
     };
+
+    @SuppressWarnings("unchecked")
+    static <K, V> MultiMap<K, V> empty() {
+        return EMPTY;
+    }
+
+    Iterator<Entry<K, Collection<V>>> iterator();
+
+    default void add(K key, V v) {
+        {
+            throw new UnsupportedOperationException("add");
+        }
+    }
+
+    V getFirst(K key);
+
+    Iterable<V> getAll(K key);
+
+    default boolean removeValueFrom(K key, V v) {
+        throw new UnsupportedOperationException("removeValueFrom");
+    }
+
+    default boolean removeMulti(K key) {
+        throw new UnsupportedOperationException("removeMulti");
+    }
+
+    Iterable<K> keySetMulti();
+
+    default void putAll(MultiMap<K, V> params) {
+        throw new UnsupportedOperationException("putAll");
+    }
+
+    default Map<? extends K, ? extends Collection<V>> baseMap() {
+        throw new UnsupportedOperationException("baseMap");
+    }
+
+    public V getSingleObject(K name);
+
+    @Override
+    default public boolean containsValue(Object value) {
+
+        throw new UnsupportedOperationException("Unsupported");
+
+    }
+
+    default public V put(K key, V value) {
+        throw new UnsupportedOperationException("Unsupported");
+
+    }
+
+    default public V remove(Object key) {
+
+        throw new UnsupportedOperationException("Unsupported");
+    }
+
+    default void putAll(Map<? extends K, ? extends V> m) {
+        throw new UnsupportedOperationException("Unsupported");
+    }
+
+    @Override
+    default void clear() {
+
+        throw new UnsupportedOperationException("Unsupported");
+    }
+
+    @Override
+    default Collection<V> values() {
+        throw new UnsupportedOperationException("Unsupported");
+    }
+
+    @Override
+    default Set<Entry<K, V>> entrySet() {
+
+        return Collections.emptySet();
+    }
+
+    default Iterable<V> valueMulti() {
+        throw new UnsupportedOperationException("Unsupported");
+    }
+
+
+
 
 }

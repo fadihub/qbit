@@ -1,3 +1,21 @@
+/*
+ * Copyright (c) 2015. Rick Hightower, Geoff Chandler
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *  		http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * QBit - The Microservice lib for Java : JSON, WebSocket, REST. Be The Web!
+ */
+
 package io.advantageous.qbit.example.inproc;
 
 import io.advantageous.qbit.service.Callback;
@@ -24,6 +42,7 @@ public class InProcExample {
         example2(args);
 
     }
+
     /**
      * You can use services in process
      */
@@ -37,7 +56,7 @@ public class InProcExample {
          */
         final Service service = serviceBuilder()
                 .setServiceObject(todoManagerImpl)
-                .build();
+                .build().start();
 
 
         /* Create Asynchronous proxy over Synchronous service. */
@@ -53,10 +72,10 @@ public class InProcExample {
 
         AtomicInteger countTracker = new AtomicInteger(); //Hold count from async call to service
 
-        System.out.println( "This is an async call to count" );
+        System.out.println("This is an async call to count");
 
         todoManager.count(count -> {
-            System.out.println( "This lambda expression is the callback " + count);
+            System.out.println("This lambda expression is the callback " + count);
 
             countTracker.set(count);
         });
@@ -99,7 +118,7 @@ public class InProcExample {
         final Service service = serviceBuilder()
                 .setQueueBuilder(queueBuilder().setBatchSize(1))
                 .setServiceObject(todoManagerImpl).setInvokeDynamic(false)
-                .build();
+                .build().start();
 
 
         /* Create Asynchronous proxy over Synchronous service. */
@@ -115,10 +134,10 @@ public class InProcExample {
 
         AtomicInteger countTracker = new AtomicInteger(); //Hold count from async call to service
 
-        System.out.println( "This is an async call to count" );
+        System.out.println("This is an async call to count");
 
         todoManager.count(count -> {
-            System.out.println( "This lambda expression is the callback " + count);
+            System.out.println("This lambda expression is the callback " + count);
 
             countTracker.set(count);
         });
@@ -133,34 +152,8 @@ public class InProcExample {
 
         System.out.printf("This is the count back from the service %d\n", countTracker.get());
 
-        todoManager.list(todos -> {
-            todos.forEach( item -> System.out.println(item) );
-        });
+        todoManager.list(todos -> todos.forEach(System.out::println));
 
-    }
-
-    /**
-     * Example service class
-     */
-    public static class TodoManager {
-
-        private List<Todo> list = new ArrayList<>();
-
-        public void add(Todo todo) {
-            System.out.println( "Add Todo" );
-            list.add(todo);
-        }
-
-        public List<Todo> list() {
-
-            System.out.println( "List Todo" );
-            return new ArrayList<>(list);
-        }
-
-        public int count() {
-            System.out.println( "Count Todo" );
-            return list.size();
-        }
     }
 
     interface TodoManagerClientInterface {
@@ -173,6 +166,30 @@ public class InProcExample {
 
         void clientProxyFlush();
 
+    }
+
+    /**
+     * Example service class
+     */
+    public static class TodoManager {
+
+        private List<Todo> list = new ArrayList<>();
+
+        public void add(Todo todo) {
+            System.out.println("Add Todo");
+            list.add(todo);
+        }
+
+        public List<Todo> list() {
+
+            System.out.println("List Todo");
+            return new ArrayList<>(list);
+        }
+
+        public int count() {
+            System.out.println("Count Todo");
+            return list.size();
+        }
     }
 
     public static class Todo {

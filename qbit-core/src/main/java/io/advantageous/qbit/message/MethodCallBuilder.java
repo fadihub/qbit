@@ -1,3 +1,21 @@
+/*
+ * Copyright (c) 2015. Rick Hightower, Geoff Chandler
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *  		http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * QBit - The Microservice lib for Java : JSON, WebSocket, REST. Be The Web!
+ */
+
 package io.advantageous.qbit.message;
 
 import io.advantageous.qbit.message.impl.MethodCallImpl;
@@ -29,6 +47,51 @@ public class MethodCallBuilder {
     private String returnAddress;
     private Request<Object> originatingRequest;
 
+    public static MethodCall<Object> transformed(final MethodCall<Object> methodCall,
+                                                 final Object arg) {
+
+
+        return new MethodCallBuilder()
+                .setTimestamp(methodCall.timestamp())
+                .setId(methodCall.id())
+                .setName(methodCall.name())
+                .setAddress(methodCall.address())
+                .setParams(methodCall.params())
+                .setHeaders(methodCall.headers())
+                .setBody(arg)
+                .setObjectName(methodCall.objectName())
+                .setReturnAddress(methodCall.returnAddress())
+                .setOriginatingRequest(methodCall.originatingRequest()).build();
+
+    }
+
+    public static MethodCall<Object> createMethodCallToBeEncodedAndSent(long id, String address,
+                                                                        String returnAddress,
+                                                                        String objectName,
+                                                                        String methodName,
+                                                                        long timestamp,
+                                                                        Object body,
+                                                                        MultiMap<String, String> params) {
+
+        return new MethodCallBuilder().setId(id).setAddress(address).setReturnAddress(returnAddress).setObjectName(objectName).setName(methodName).setTimestamp(timestamp).setBody(body).setParams(params).build();
+    }
+
+    public static MethodCall<Object> methodWithArgs(String name, Object... args) {
+        return new MethodCallBuilder().setName(name).setBody(args).build();
+
+    }
+
+    public static MethodCall<Object> method(String name, List body) {
+        return new MethodCallBuilder().setName(name).setBody(body).build();
+    }
+
+    public static MethodCall<Object> method(String name, String body) {
+        return new MethodCallBuilder().setName(name).setBody(body).build();
+    }
+
+    public static MethodCall<Object> method(String name, String address, String body) {
+        return new MethodCallBuilder().setName(name).setBody(body).setAddress(address).build();
+    }
 
     public long getTimestamp() {
         return timestamp;
@@ -63,8 +126,8 @@ public class MethodCallBuilder {
 
     public MethodCallBuilder setAddress(String address) {
 
-        if (address==null) {
-            this.address="";
+        if (address == null) {
+            this.address = "";
         } else {
             this.address = address;
         }
@@ -126,40 +189,9 @@ public class MethodCallBuilder {
         return this;
     }
 
-
-    public static MethodCall<Object> transformed(final MethodCall<Object> methodCall,
-                                                 final Object arg) {
-
-
-        return new MethodCallBuilder()
-                    .setTimestamp(methodCall.timestamp())
-                    .setId(methodCall.id())
-                    .setName(methodCall.name())
-                    .setAddress(methodCall.address())
-                    .setParams(methodCall.params())
-                    .setHeaders(methodCall.headers())
-                    .setBody(arg)
-                    .setObjectName(methodCall.objectName())
-                    .setReturnAddress(methodCall.returnAddress())
-                    .setOriginatingRequest(methodCall.originatingRequest()).build();
-
-    }
-
-    public static MethodCall<Object> createMethodCallToBeEncodedAndSent(long id, String address,
-                                                                 String returnAddress,
-                                                                 String objectName,
-                                                                 String methodName,
-                                                                 long timestamp,
-                                                                 Object body,
-                                                                 MultiMap<String, String> params) {
-
-        return new MethodCallBuilder().setId(id).setAddress(address).setReturnAddress(returnAddress).setObjectName(objectName).setName(methodName).setTimestamp(timestamp).setBody(body).setParams(params).build();
-    }
-
-
     public MethodCall<Object> build() {
 
-        if (timestamp==0L) {
+        if (timestamp == 0L) {
             timestamp = timer.now();
         }
 
@@ -171,8 +203,6 @@ public class MethodCallBuilder {
         return new MethodCallImpl(timestamp, id, name, address, params, headers, body, objectName, returnAddress, originatingRequest);
 
     }
-
-
 
     public boolean hasParams() {
         return params != null && params.size() > 0;
@@ -189,24 +219,6 @@ public class MethodCallBuilder {
             this.name = _methodName == null || _methodName.isEmpty() ? name : _methodName;
             this.objectName = _objectName == null || _objectName.isEmpty() ? objectName : _objectName;
         }
-    }
-
-    public static MethodCall<Object> methodWithArgs(String name, Object... args) {
-        return new MethodCallBuilder().setName(name).setBody(args).build();
-
-    }
-
-    public static MethodCall<Object> method(String name, List body) {
-        return new MethodCallBuilder().setName(name).setBody(body).build();
-    }
-
-
-    public static MethodCall<Object> method(String name, String body) {
-        return new MethodCallBuilder().setName(name).setBody(body).build();
-    }
-
-    public static MethodCall<Object> method(String name, String address, String body) {
-        return new MethodCallBuilder().setName(name).setBody(body).setAddress(address).build();
     }
 
 }
