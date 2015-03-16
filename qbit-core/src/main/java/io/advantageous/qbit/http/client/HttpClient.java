@@ -24,8 +24,8 @@ import io.advantageous.qbit.http.request.HttpResponse;
 import io.advantageous.qbit.http.request.HttpTextReceiver;
 import io.advantageous.qbit.http.websocket.WebSocket;
 import io.advantageous.qbit.util.MultiMap;
-import org.boon.core.Sys;
-import org.boon.core.reflection.BeanUtils;
+import io.advantageous.boon.core.Sys;
+import io.advantageous.boon.core.reflection.BeanUtils;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -33,10 +33,10 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 import static io.advantageous.qbit.http.request.HttpRequestBuilder.httpRequestBuilder;
-import static org.boon.Boon.sputs;
+import static io.advantageous.boon.Boon.sputs;
 
 /**
- * This is an interface that allows users to send HTTP requests to a server.
+ * This is an interface that allows users to forwardEvent HTTP requests to a server.
  * <p>
  * Created by rhightower on 10/28/14.
  *
@@ -1009,6 +1009,9 @@ public interface HttpClient {
 
     void periodicFlushCallback(Consumer<Void> periodicFlushCallback);
 
+    int getPort();
+
+    String getHost();
 
     HttpClient start();
 

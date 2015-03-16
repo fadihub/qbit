@@ -33,12 +33,13 @@ import io.advantageous.qbit.server.ServiceServerBuilder;
 import io.advantageous.qbit.service.Callback;
 import io.advantageous.qbit.spi.FactorySPI;
 import io.advantageous.qbit.spi.HttpClientFactory;
-import org.boon.core.Sys;
+import io.advantageous.boon.core.Sys;
 
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 
-import static org.boon.Boon.puts;
+import static io.advantageous.boon.Boon.puts;
+
 
 /**
  * Created by Richard on 12/7/14.
@@ -86,19 +87,15 @@ public class PerfTestMain {
         for ( int index = 0; index < 80_000_000; index++ ) {
             adder.add("name", 1);
 
-            final int runNum = index;
 
 
             if ( index % 400_000 == 0 ) {
-                adder.sum(new Callback<Integer>() {
-                    @Override
-                    public void accept(Integer integer) {
+                adder.sum(integer -> {
 
 
-                        final long endTime = System.currentTimeMillis();
+                    final long endTime = System.currentTimeMillis();
 
-                        puts("sum", integer, "time", endTime - startTime, "rate", ( integer / ( endTime - startTime ) * 1000 ));
-                    }
+                    puts("sum", integer, "time", endTime - startTime, "rate", ( integer / ( endTime - startTime ) * 1000 ));
                 });
             }
         }
@@ -275,7 +272,7 @@ public class PerfTestMain {
 //            try {
 //                lock.lock();
 //
-//                sendQueue.send(webSocketMessage);
+//                sendQueue.forwardEvent(webSocketMessage);
 //            } finally {
 //                lock.unlock();
 //            }
@@ -285,6 +282,16 @@ public class PerfTestMain {
         public void periodicFlushCallback(Consumer<Void> periodicFlushCallback) {
 
             this.periodicFlushCallback = periodicFlushCallback;
+        }
+
+        @Override
+        public int getPort() {
+            return 0;
+        }
+
+        @Override
+        public String getHost() {
+            return "mock";
         }
 
         @Override

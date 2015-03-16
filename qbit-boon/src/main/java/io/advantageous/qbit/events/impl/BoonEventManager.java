@@ -18,18 +18,20 @@
 
 package io.advantageous.qbit.events.impl;
 
+import io.advantageous.boon.core.reflection.AnnotationData;
+import io.advantageous.boon.core.reflection.BeanUtils;
+import io.advantageous.boon.core.reflection.ClassMeta;
+import io.advantageous.boon.core.reflection.MethodAccess;
 import io.advantageous.qbit.GlobalConstants;
 import io.advantageous.qbit.annotation.QueueCallback;
 import io.advantageous.qbit.annotation.QueueCallbackType;
 import io.advantageous.qbit.events.*;
+import io.advantageous.qbit.events.spi.EventConnector;
+import io.advantageous.qbit.events.spi.EventTransferObject;
 import io.advantageous.qbit.message.Event;
 import io.advantageous.qbit.queue.SendQueue;
-import io.advantageous.qbit.service.Service;
+import io.advantageous.qbit.service.ServiceQueue;
 import io.advantageous.qbit.util.Timer;
-import org.boon.core.reflection.AnnotationData;
-import org.boon.core.reflection.BeanUtils;
-import org.boon.core.reflection.ClassMeta;
-import org.boon.core.reflection.MethodAccess;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -37,16 +39,17 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+import static io.advantageous.boon.Boon.puts;
 import static io.advantageous.qbit.annotation.AnnotationUtils.getListenAnnotation;
 import static io.advantageous.qbit.service.ServiceContext.serviceContext;
-import static org.boon.Boon.puts;
 
 /**
- * Created by rhightower on 2/3/15.
+ * @author  rhightower
+ * on 2/3/15.
  */
 public class BoonEventManager implements EventManager {
 
-    private final EventBus eventBus = new EventBusImpl();
+    private final EventBus eventBus;
     private final Map<String, List<Object>> eventMap = new ConcurrentHashMap<>();
     private final List<SendQueue<Event<Object>>> queuesToFlush = new ArrayList<>(100);
     private final boolean debug = GlobalConstants.DEBUG;
@@ -54,6 +57,21 @@ public class BoonEventManager implements EventManager {
     private long flushCount = 0;
     private long lastFlushTime = 0;
     private long now;
+
+    public BoonEventManager(final EventConnector eventConnector) {
+
+       eventBus = new EventBusImpl(eventConnector);
+
+    }
+
+
+    public BoonEventManager() {
+
+
+        eventBus = new EventBusImpl();
+
+    }
+
 
     private void sendMessages() {
 
@@ -92,6 +110,8 @@ public class BoonEventManager implements EventManager {
             return;
         }
 
+        eventBus.flush();
+
     }
 
     @QueueCallback(QueueCallbackType.LIMIT)
@@ -112,6 +132,8 @@ public class BoonEventManager implements EventManager {
             sendMessages();
         }
 
+        eventBus.flush();
+
     }
 
 
@@ -130,39 +152,41 @@ public class BoonEventManager implements EventManager {
         now = Timer.timer().now();
         long duration = now - lastFlushTime;
 
-        if (duration > 50 && messageCountSinceLastFlush > 0) {
+        if (duration > 20 && messageCountSinceLastFlush > 0) {
             sendMessages();
         }
+
+        eventBus.flush();
 
     }
 
 
     @Override
-    public void joinService(Service service) {
+    public void joinService(ServiceQueue serviceQueue) {
 
         if (debug) {
 
-            puts("Joined", service);
+            puts("Joined", serviceQueue);
         }
 
-        if (service == null) {
+        if (serviceQueue == null) {
             throw new IllegalStateException("Must be called from inside of a Service");
         }
 
-        doListen(service.service(), service);
+        doListen(serviceQueue.service(), serviceQueue);
     }
 
 
     @Override
     public void leave() {
 
-        final Service service = serviceContext().currentService();
-        if (service == null) {
+        final ServiceQueue serviceQueue = serviceContext().currentService();
+        if (serviceQueue == null) {
             throw new IllegalStateException("Must be called from inside of a Service");
         }
 
 
-        stopListening(service.service());
+        stopListening(serviceQueue.service());
     }
 
 
@@ -172,10 +196,10 @@ public class BoonEventManager implements EventManager {
 
     }
 
-    private void doListen(final Object listener, final Service service) {
+    private void doListen(final Object listener, final ServiceQueue serviceQueue) {
 
         if (debug) {
-            puts("BoonEventManager registering listener", listener, service);
+            puts("BoonEventManager registering listener", listener, serviceQueue);
         }
         final ClassMeta<?> classMeta = ClassMeta.classMeta(listener.getClass());
         final Iterable<MethodAccess> methods = classMeta.methods();
@@ -184,27 +208,27 @@ public class BoonEventManager implements EventManager {
             AnnotationData listen = getListenAnnotation(methodAccess);
 
             if (listen == null) continue;
-            extractEventListenerFromMethod(listener, methodAccess, listen, service);
+            extractEventListenerFromMethod(listener, methodAccess, listen, serviceQueue);
         }
     }
 
 
-    private void extractEventListenerFromMethod(final Object listener, final MethodAccess methodAccess, final AnnotationData listen, final Service service) {
+    private void extractEventListenerFromMethod(final Object listener, final MethodAccess methodAccess, final AnnotationData listen, final ServiceQueue serviceQueue) {
         final String channel = listen.getValues().get("value").toString();
         final boolean consume = (boolean) listen.getValues().get("consume");
 
 
-        if (service == null) {
+        if (serviceQueue == null) {
             extractListenerForRegularObject(listener, methodAccess, channel, consume);
         } else {
-            extractListenerForService(service, methodAccess, channel, consume);
+            extractListenerForService(serviceQueue, methodAccess, channel, consume);
         }
     }
 
 
-    private void extractListenerForService(Service service, final MethodAccess methodAccess, final String channel, final boolean consume) {
+    private void extractListenerForService(ServiceQueue serviceQueue, final MethodAccess methodAccess, final String channel, final boolean consume) {
 
-        final SendQueue<Event<Object>> events = service.events();
+        final SendQueue<Event<Object>> events = serviceQueue.events();
         if (consume) {
 
             this.subscribe(channel, events);
@@ -329,9 +353,15 @@ public class BoonEventManager implements EventManager {
     }
 
     @Override
-    public <T> void sendCopy(String channel, Event<T> event) {
+    public <T> void sendCopy(String channel, T event) {
 
-        Event<T> copy = BeanUtils.copy(event);
+        T copy = BeanUtils.copy(event);
         this.send(channel, copy);
+    }
+
+    @Override
+    public <T> void forwardEvent(final EventTransferObject<Object> event) {
+        messageCountSinceLastFlush++;
+        eventBus.forwardEvent(event);
     }
 }

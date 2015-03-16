@@ -18,11 +18,17 @@
 
 package io.advantageous.qbit;
 
+import io.advantageous.boon.Boon;
+import io.advantageous.boon.Exceptions;
+import io.advantageous.boon.Lists;
+import io.advantageous.boon.Str;
+import io.advantageous.boon.core.Sys;
 import io.advantageous.qbit.annotation.RequestMapping;
 import io.advantageous.qbit.annotation.RequestParam;
 import io.advantageous.qbit.message.MethodCall;
 import io.advantageous.qbit.message.Response;
 import io.advantageous.qbit.message.impl.MethodCallImpl;
+import io.advantageous.qbit.queue.QueueBuilder;
 import io.advantageous.qbit.queue.ReceiveQueue;
 import io.advantageous.qbit.service.Callback;
 import io.advantageous.qbit.service.Protocol;
@@ -34,11 +40,6 @@ import io.advantageous.qbit.spi.ProtocolEncoder;
 import io.advantageous.qbit.spi.RegisterBoonWithQBit;
 import io.advantageous.qbit.util.MultiMap;
 import io.advantageous.qbit.util.MultiMapImpl;
-import org.boon.Boon;
-import org.boon.Exceptions;
-import org.boon.Lists;
-import org.boon.Str;
-import org.boon.core.Sys;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -46,19 +47,18 @@ import java.math.BigDecimal;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-import static org.boon.Boon.puts;
-import static org.boon.Exceptions.die;
+import static io.advantageous.boon.Boon.puts;
+import static io.advantageous.boon.Exceptions.die;
+import static io.advantageous.qbit.service.ServiceBundleBuilder.serviceBundleBuilder;
+
 
 /**
+ * A test
  * Created by Richard on 9/27/14.
  */
 public class IntegrationTestForRESTStyleCallsTest {
 
 
-    static {
-        RegisterBoonWithQBit.registerBoonWithQBit();
-
-    }
 
 
     EmployeeService employeeService;
@@ -88,7 +88,8 @@ public class IntegrationTestForRESTStyleCallsTest {
 
         factory = QBit.factory();
 
-        serviceBundle = new ServiceBundleBuilder().setAddress("/root").buildAndStart();
+        serviceBundle = serviceBundleBuilder()//.setRequestQueueBuilder(QueueBuilder.queueBuilder().setPollWait(1000))
+                .setAddress("/root").buildAndStart();
         serviceBundleImpl = ( ServiceBundleImpl ) serviceBundle;
 
         responseReceiveQueue = serviceBundle.responses().receiveQueue();
@@ -313,6 +314,56 @@ public class IntegrationTestForRESTStyleCallsTest {
 
 
     @Test
+    public void testRequestParamBinding2Params() {
+
+
+        params = new MultiMapImpl<>();
+        params.put("idOfEmployee", "" + 10);
+        params.put("deptName", "Engineering");
+
+
+        String addressToMethodCall = "/root/employeeRest/addEmployeeWithParams2";
+
+        /* Create employee client */
+        serviceBundle.addService(employeeService);
+
+
+        call = factory.createMethodCallByAddress(addressToMethodCall, returnAddress, rick, params);
+
+
+        doCall();
+
+
+        response = responseReceiveQueue.pollWait();
+
+        Exceptions.requireNonNull(response);
+
+        if ( response.body() instanceof Exception ) {
+            Exception ex = ( Exception ) response.body();
+            ex.printStackTrace();
+        }
+
+        Boon.equalsOrDie(true, response.body());
+
+        /** Read employee back from client */
+
+
+        params = new MultiMapImpl<>();
+        params.put("idOfEmployee", "" + 10);
+
+        addressToMethodCall = "/root/employeeRest/employeeRead";
+
+        call = factory.createMethodCallByAddress(addressToMethodCall, returnAddress, "", params);
+        doCall();
+        response = responseReceiveQueue.pollWait();
+
+        validateRick();
+
+
+    }
+
+
+    @Test
     public void testException() {
 
 
@@ -354,9 +405,10 @@ public class IntegrationTestForRESTStyleCallsTest {
 
         Exceptions.requireNonNull(response);
 
-        ok = !response.wasErrors() || die();
 
         puts(response.body());
+
+        ok = !response.wasErrors() || die();
 
         Boon.equalsOrDie("hi mom", response.body());
 
@@ -371,7 +423,18 @@ public class IntegrationTestForRESTStyleCallsTest {
         /* Create employee client */
         serviceBundle.addService(employeeService);
 
-        call = factory.createMethodCallByAddress(addressToMethodCall, returnAddress, "World", params);
+
+        call = factory.createMethodCallByAddress(addressToMethodCall, returnAddress,
+
+                new Object[]{
+                        new Callback<String>() {
+
+                            @Override
+                            public void accept(String s) {
+                                puts("$$$$$$$$$$$$$$$$$$" + s);
+                            }
+                        },
+                        "World"}, params);
 
         doCall();
 
@@ -385,7 +448,6 @@ public class IntegrationTestForRESTStyleCallsTest {
 
 
         puts(response.body());
-
         Boon.equalsOrDie("Hello World", response.body());
 
     }
@@ -404,8 +466,11 @@ public class IntegrationTestForRESTStyleCallsTest {
 //                impl.params(params);
         }
         serviceBundle.call(call);
-        serviceBundle.flush();
+
+        serviceBundle.flushSends();
         Sys.sleep(100);
+        serviceBundle.flush();
+        Sys.sleep(200);
     }
 
     private void validateRick() {
@@ -491,6 +556,19 @@ public class IntegrationTestForRESTStyleCallsTest {
 
         }
 
+
+        @RequestMapping( "/addEmployeeWithParams2" )
+        public boolean addEmployeeWithParams2(
+                @RequestParam( required = true, value = "idOfEmployee" ) int id,
+                @RequestParam( "deptName") String deptName,
+                Employee employee) {
+
+            puts("addEmployeeWithParams2 CALLED", id, deptName, employee);
+            map.put(id, employee);
+            return true;
+
+        }
+
         @RequestMapping( "/employee/remove/" )
         public boolean removeEmployee(int id) {
             map.remove(id);
@@ -511,6 +589,7 @@ public class IntegrationTestForRESTStyleCallsTest {
 
         @RequestMapping( "/asyncHelloWorld/" )
         public void asyncHelloWorld(Callback<String> handler, String arg) {
+
             handler.accept("Hello " + arg);
         }
 

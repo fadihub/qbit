@@ -18,6 +18,14 @@
 
 package io.advantageous.qbit.client;
 
+import io.advantageous.boon.Str;
+import io.advantageous.boon.StringScanner;
+import io.advantageous.boon.core.Conversions;
+import io.advantageous.boon.core.Sys;
+import io.advantageous.boon.core.reflection.ClassMeta;
+import io.advantageous.boon.core.reflection.MapObjectConversion;
+import io.advantageous.boon.core.reflection.MethodAccess;
+import io.advantageous.boon.primitive.Arry;
 import io.advantageous.qbit.QBit;
 import io.advantageous.qbit.http.client.HttpClient;
 import io.advantageous.qbit.http.websocket.WebSocket;
@@ -27,16 +35,8 @@ import io.advantageous.qbit.message.Response;
 import io.advantageous.qbit.message.impl.MethodCallImpl;
 import io.advantageous.qbit.service.BeforeMethodCall;
 import io.advantageous.qbit.service.Callback;
-import org.boon.Boon;
-import org.boon.Logger;
-import org.boon.Str;
-import org.boon.StringScanner;
-import org.boon.core.Conversions;
-import org.boon.core.Sys;
-import org.boon.core.reflection.ClassMeta;
-import org.boon.core.reflection.MapObjectConversion;
-import org.boon.core.reflection.MethodAccess;
-import org.boon.primitive.Arry;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
@@ -45,10 +45,12 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-import static io.advantageous.qbit.service.Protocol.PROTOCOL_ARG_SEPARATOR;
-import static org.boon.Boon.sputs;
-import static org.boon.Exceptions.die;
+import static io.advantageous.boon.Boon.sputs;
+import static io.advantageous.boon.Exceptions.die;
+import static io.advantageous.qbit.service.Protocol.*;
+
 
 
 /**
@@ -65,7 +67,7 @@ public class BoonClient implements Client {
      */
     private final HttpClient httpServerProxy;
     /**
-     * Request batch size for queing.
+     * Request batch size for queuing.
      */
     private final int requestBatchSize;
     /**
@@ -79,18 +81,23 @@ public class BoonClient implements Client {
     /**
      * Logger.
      */
-    private Logger logger = Boon.logger(BoonClient.class);
+    private Logger logger = LoggerFactory.getLogger(BoonClient.class);
     /**
      * List of client proxies that we are managing for periodic flush.
      */
     private List<ClientProxy> clientProxies = new CopyOnWriteArrayList<>();
     private WebSocket webSocket;
 
+    private AtomicBoolean connected = new AtomicBoolean();
+
     /**
      * @param httpClient httpClient
      * @param uri        uri
+     * @param requestBatchSize request batch size
      */
-    public BoonClient(String uri, HttpClient httpClient, int requestBatchSize) {
+    public BoonClient(final String uri,
+                      final HttpClient httpClient,
+                      final int requestBatchSize) {
 
         this.httpServerProxy = httpClient;
         this.uri = uri;
@@ -103,35 +110,39 @@ public class BoonClient implements Client {
      */
     public void stop() {
         flush();
-        Sys.sleep(100); //TODO really? Get rid of this and retest
         if ( httpServerProxy != null ) {
             try {
                 httpServerProxy.stop();
             } catch ( Exception ex ) {
 
-                logger.warn(ex, "Problem closing httpServerProxy ");
+                logger.warn("Problem closing httpServerProxy ", ex);
             }
         }
     }
 
+    @Override
+    public boolean connected() {
+        return connected.get();
+    }
+
 
     /**
-     * Handles websocket messages and parses them into responses.
+     * Handles WebSocket messages and parses them into responses.
      * This does not handle batching or rather un-batching which we need for performance
      * we do handle batching in the parser/encoder.
      *
-     * @param websocketText websocket text
+     * @param webSocketText websocket text
      */
-    private void handleWebSocketReplyMessage(final String websocketText) {
+    private void handleWebSocketReplyMessage(final String webSocketText) {
 
 
-        final List<Message<Object>> messages = QBit.factory().createProtocolParser().parse("", websocketText);
+        final List<Message<Object>> messages = QBit.factory().createProtocolParser().parse("", webSocketText);
 
 
         for ( Message<Object> message : messages ) {
             if ( message instanceof Response ) {
                 final Response<Object> response = ( ( Response ) message );
-                final String[] split = StringScanner.split(response.returnAddress(), ( char ) PROTOCOL_ARG_SEPARATOR);
+                final String[] split = StringScanner.split(response.returnAddress(), (char) PROTOCOL_ARG_SEPARATOR);
                 final HandlerKey key = split.length == 2 ? new HandlerKey(split[ 1 ], response.id()) : new HandlerKey(split[ 0 ], response.id());
                 final Callback<Object> handler = handlers.get(key);
 
@@ -175,20 +186,39 @@ public class BoonClient implements Client {
         if ( webSocket == null ) {
             this.webSocket = httpServerProxy.createWebSocket(Str.add(uri, "/", serviceName));
             wireWebSocket(serviceName, message);
-            this.webSocket.openAndWait();
-        } else {
-            if ( webSocket.isClosed() ) {
+            try {
                 this.webSocket.openAndWait();
+                this.connected.set(true);
+
+            } catch (Exception ex) {
+                this.connected.set(false);
+                throw new IllegalStateException(ex);
+            }
+        } else {
+            try {
+                if (webSocket.isClosed() && connected()) {
+                    this.webSocket.openAndWait();
+                    this.connected.set(true);
+                }
+            }catch (Exception ex) {
+                logger.error("Unable to open connection", ex);
+                this.connected.set(false);
+                return;
+
             }
         }
 
+        if (!webSocket.isClosed()) {
         /* By this point we should be open. */
-        webSocket.sendText(message);
+            webSocket.sendText(message);
+        }
     }
 
     private void wireWebSocket(final String serviceName, final String message) {
 
-        this.webSocket.setErrorConsumer(error -> logger.error(sputs(this.getClass().getName(), "::Exception calling WebSocket from client proxy", "\nService Name", serviceName, "\nMessage", message), error));
+        this.webSocket.setErrorConsumer(error ->
+                logger.error(sputs(this.getClass().getName(),
+                        "::Exception calling WebSocket from client proxy", "\nService Name", serviceName, "\nMessage", message), error));
 
         this.webSocket.setTextMessageConsumer(messageFromServer -> handleWebSocketReplyMessage(messageFromServer));
     }
@@ -253,7 +283,12 @@ public class BoonClient implements Client {
                 return true;
             }
         };
-        T proxy = QBit.factory().createRemoteProxyWithReturnAddress(serviceInterface, uri, serviceName, returnAddressArg, (returnAddress, buffer) -> BoonClient.this.send(serviceName, buffer), beforeMethodCall, requestBatchSize);
+        T proxy = QBit.factory().createRemoteProxyWithReturnAddress(serviceInterface, uri, serviceName,
+                httpServerProxy.getHost(),
+                httpServerProxy.getPort(),
+                connected,
+                returnAddressArg, (returnAddress, buffer) ->
+                        BoonClient.this.send(serviceName, buffer), beforeMethodCall, requestBatchSize);
 
         if ( proxy instanceof ClientProxy ) {
             clientProxies.add(( ClientProxy ) proxy);
@@ -302,7 +337,7 @@ public class BoonClient implements Client {
         final Class<?> componentClass = compType;
 
         /** Create the return handler. */
-        Callback<Object> returnHandler = new Callback<Object>() {
+        return new Callback<Object>() {
             @Override
             public void accept(Object event) {
 
@@ -311,7 +346,7 @@ public class BoonClient implements Client {
                     if ( componentClass != null && actualReturnType == List.class ) {
 
                         try {
-                            event = MapObjectConversion.convertListOfMapsToObjects(componentClass, ( List ) event);
+                            event = MapObjectConversion.convertListOfMapsToObjects(componentClass, (List) event);
                         } catch ( Exception ex ) {
                             if ( event instanceof CharSequence ) {
                                 String errorMessage = event.toString();
@@ -335,9 +370,6 @@ public class BoonClient implements Client {
 
             }
         };
-
-
-        return returnHandler;
     }
 
     public void start() {

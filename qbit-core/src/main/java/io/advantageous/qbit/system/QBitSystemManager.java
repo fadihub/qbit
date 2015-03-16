@@ -21,7 +21,7 @@ package io.advantageous.qbit.system;
 import io.advantageous.qbit.GlobalConstants;
 import io.advantageous.qbit.QBit;
 import io.advantageous.qbit.server.Server;
-import io.advantageous.qbit.service.Service;
+import io.advantageous.qbit.service.ServiceQueue;
 import io.advantageous.qbit.service.ServiceBundle;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,14 +31,14 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 
-import static org.boon.Boon.puts;
+import static io.advantageous.boon.Boon.puts;
 
 /**
  * Created by rhightower on 2/11/15.
  */
 public class QBitSystemManager {
 
-    private final List<Service> serviceList = new CopyOnWriteArrayList<>();
+    private final List<ServiceQueue> serviceQueueList = new CopyOnWriteArrayList<>();
     private final List<ServiceBundle> serviceBundleList = new CopyOnWriteArrayList<>();
     private final List<Server> serverList = new CopyOnWriteArrayList<>();
     private final Logger logger = LoggerFactory.getLogger(QBitSystemManager.class);
@@ -71,10 +71,10 @@ public class QBitSystemManager {
         }
     }
 
-    public void registerService(final Service service) {
-        if (debug) puts("registerService", service);
+    public void registerService(final ServiceQueue serviceQueue) {
+        if (debug) puts("registerService", serviceQueue);
         countTracked++;
-        serviceList.add(service);
+        serviceQueueList.add(serviceQueue);
     }
 
 
@@ -91,9 +91,9 @@ public class QBitSystemManager {
 
     public void shutDown() {
 
-        for (Service service : serviceList) {
+        for (ServiceQueue serviceQueue : serviceQueueList) {
             try {
-                service.stop();
+                serviceQueue.stop();
             } catch (Exception ex) {
 
                 if (debug) {
@@ -167,7 +167,7 @@ public class QBitSystemManager {
     }
 
     public void startAll() {
-        serviceList.forEach(Service::start);
+        serviceQueueList.forEach(ServiceQueue::start);
         serverList.forEach(Server::start);
         serviceBundleList.forEach(ServiceBundle::start);
         countDownLatch = new CountDownLatch(countTracked);

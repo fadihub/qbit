@@ -22,7 +22,7 @@ import io.advantageous.qbit.annotation.RequestMapping;
 import io.advantageous.qbit.annotation.RequestParam;
 import io.advantageous.qbit.queue.QueueBuilder;
 import io.advantageous.qbit.server.ServiceServer;
-import org.boon.core.Sys;
+import io.advantageous.boon.core.Sys;
 
 import java.util.Collections;
 import java.util.List;
@@ -41,11 +41,11 @@ public class CPUIntensiveService {
 
         final ServiceServer serviceServer = serviceServerBuilder()
                 //2,500,000 454,065
-                .setRequestQueueBuilder(
+                .setHttpRequestQueueBuilder(
                         QueueBuilder.queueBuilder()
                                 .setBatchSize(1000).setLinkTransferQueue().setCheckEvery(50).setPollWait(100)
                 )
-                .setServiceBundleQueueBuilder(QueueBuilder.queueBuilder()
+                .setResponseQueueBuilder(QueueBuilder.queueBuilder()
                         .setBatchSize(250).setLinkTransferQueue().setCheckEvery(5))
                 .setPort(6060).setFlushInterval(10).setRequestBatchSize(100)
                 .setTimeoutSeconds(60)

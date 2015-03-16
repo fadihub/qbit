@@ -21,6 +21,8 @@ package io.advantageous.qbit.client;
 
 import io.advantageous.qbit.service.EndPoint;
 
+import java.util.concurrent.atomic.AtomicBoolean;
+
 /**
  * Created by Richard on 10/1/14.
  *
@@ -29,6 +31,9 @@ import io.advantageous.qbit.service.EndPoint;
 public interface ServiceProxyFactory {
     <T> T createProxyWithReturnAddress(Class<T> serviceInterface,
                                        String serviceName,
+                                       String host,
+                                       int port,
+                                       AtomicBoolean connected,
                                        String returnAddressArg,
                                        EndPoint serviceBundle);
 

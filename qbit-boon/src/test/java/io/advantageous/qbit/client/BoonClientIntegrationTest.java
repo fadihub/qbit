@@ -18,6 +18,8 @@
 
 package io.advantageous.qbit.client;
 
+import io.advantageous.boon.core.Sys;
+import io.advantageous.boon.core.reflection.BeanUtils;
 import io.advantageous.qbit.QBit;
 import io.advantageous.qbit.http.client.HttpClient;
 import io.advantageous.qbit.http.request.HttpRequest;
@@ -29,41 +31,45 @@ import io.advantageous.qbit.message.Response;
 import io.advantageous.qbit.service.Callback;
 import io.advantageous.qbit.service.ServiceBundle;
 import io.advantageous.qbit.service.ServiceBundleBuilder;
-import org.boon.core.Sys;
-import org.boon.core.reflection.BeanUtils;
+import io.advantageous.qbit.test.TimedTesting;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
-import static io.advantageous.qbit.http.websocket.WebSocketBuilder.webSocketBuilder;
-import static org.boon.Boon.puts;
-import static org.boon.Exceptions.die;
+import static io.advantageous.boon.Boon.puts;
+import static io.advantageous.boon.Exceptions.die;
+import static junit.framework.Assert.assertEquals;
 
-public class BoonClientIntegrationTest {
+
+public class BoonClientIntegrationTest extends TimedTesting {
 
     Client client;
-    boolean httpStopCalled;
-    boolean httpStartCalled;
-    boolean httpSendWebSocketCalled;
-    boolean httpFlushCalled;
-    boolean httpPeriodicFlushCallbackCalled;
+    AtomicBoolean httpStopCalled = new AtomicBoolean();
+    AtomicBoolean httpStartCalled = new AtomicBoolean();
+    AtomicBoolean httpSendWebSocketCalled = new AtomicBoolean();
+    AtomicBoolean httpFlushCalled = new AtomicBoolean();
+    AtomicBoolean httpPeriodicFlushCallbackCalled = new AtomicBoolean();
     boolean ok;
-    volatile int sum;
+    AtomicInteger  sum = new AtomicInteger();
     volatile Response<Object> response;
     ServiceBundle serviceBundle;
 
     @Before
     public void setUp() throws Exception {
 
+        setupLatch();
+
         client = new BoonClientFactory().create("/services", new HttpClientMock(), 10);
 
         client.start();
         serviceBundle = new ServiceBundleBuilder().setAddress("/services").buildAndStart();
         serviceBundle.addService(new ServiceMock());
-        sum = 0;
+        sum.set(0);
         serviceBundle.startReturnHandlerProcessor(item -> response = item);
     }
 
@@ -90,7 +96,9 @@ public class BoonClientIntegrationTest {
         serviceBundle.flush();
         Sys.sleep(100);
 
-        ok = httpSendWebSocketCalled || die("Send called", httpSendWebSocketCalled);
+        waitForTrigger(20, o -> httpSendWebSocketCalled.get());
+
+        ok = httpSendWebSocketCalled.get() || die("Send called", httpSendWebSocketCalled);
 
 
     }
@@ -100,18 +108,25 @@ public class BoonClientIntegrationTest {
         client.start();
         Sys.sleep(100);
 
+        sum.set(0);
+
         final ServiceMockClientInterface mockService = client.createProxy(ServiceMockClientInterface.class, "serviceMock");
 
 
         mockService.add(1, 2);
-        mockService.sum(integer -> sum = integer);
+        mockService.sum(integer -> sum.set(integer));
 
         ( ( ClientProxy ) mockService ).clientProxyFlush();
 
-        ok = httpSendWebSocketCalled || die();
+        Sys.sleep(1000);
+        waitForTrigger(20, o -> httpSendWebSocketCalled.get());
+        ok = httpSendWebSocketCalled.get() || die();
 
 
-        ok = sum == 3 || die(sum);
+        waitForTrigger(20, o -> sum.get()!=3);
+        Sys.sleep(200);
+
+        assertEquals(3, sum.get());
 
     }
 
@@ -147,7 +162,7 @@ public class BoonClientIntegrationTest {
         @Override
         public WebSocket createWebSocket(final String uri) {
 
-            final WebSocketBuilder webSocketBuilder = webSocketBuilder().setRemoteAddress("test").setUri(uri).setBinary(false).setOpen(true);
+            final WebSocketBuilder webSocketBuilder = WebSocketBuilder.webSocketBuilder().setRemoteAddress("test").setUri(uri).setBinary(false).setOpen(true);
 
             final WebSocket webSocket = webSocketBuilder.build();
 
@@ -156,7 +171,7 @@ public class BoonClientIntegrationTest {
                 public void sendText(final String body) {
 
 
-                    httpSendWebSocketCalled = true;
+                    httpSendWebSocketCalled.set(true);
                     periodicFlushCallback.accept(null);
 
 
@@ -190,28 +205,38 @@ public class BoonClientIntegrationTest {
 
         @Override
         public void periodicFlushCallback(Consumer<Void> periodicFlushCallback) {
-            httpPeriodicFlushCallbackCalled = true;
+            httpPeriodicFlushCallbackCalled.set(true);
             this.periodicFlushCallback = periodicFlushCallback;
 
         }
 
         @Override
+        public int getPort() {
+            return 0;
+        }
+
+        @Override
+        public String getHost() {
+            return "mock";
+        }
+
+        @Override
         public HttpClient start() {
-            httpStartCalled = true;
+            httpStartCalled.set(true);
             return this;
 
         }
 
         @Override
         public void flush() {
-            httpFlushCalled = true;
+            httpFlushCalled.set(true);
 
         }
 
         @Override
         public void stop() {
 
-            httpStopCalled = true;
+            httpStopCalled.set(true);
         }
     }
 }

@@ -22,12 +22,12 @@ import io.advantageous.qbit.GlobalConstants;
 import io.advantageous.qbit.QBit;
 import io.advantageous.qbit.http.client.HttpClient;
 
+import java.net.InetSocketAddress;
+import java.net.URI;
+import java.net.URL;
+
 /**
  * Client builder is used to createWithWorkers a client programatically.
- * <p>
- * <p>
- * <p>
- * Created by rhightower on 12/3/14.
  */
 public class ClientBuilder {
 
@@ -110,6 +110,26 @@ public class ClientBuilder {
 
     public ClientBuilder setHost(String host) {
         this.host = host;
+        return this;
+    }
+
+    public ClientBuilder setHostAndPort(final InetSocketAddress inetSocketAddress) {
+        this.setHost(inetSocketAddress.getHostName());
+        this.setPort(inetSocketAddress.getPort());
+        return this;
+    }
+
+
+    public ClientBuilder setHostAndPort(final URI uri) {
+        this.setHost(uri.getHost());
+        this.setPort(uri.getPort());
+        return this;
+    }
+
+
+    public ClientBuilder setHostAndPort(final URL url) {
+        this.setHost(url.getHost());
+        this.setPort(url.getPort());
         return this;
     }
 

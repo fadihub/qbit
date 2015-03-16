@@ -18,29 +18,37 @@
 
 package io.advantageous.qbit.events.impl;
 
+import io.advantageous.boon.Sets;
+import io.advantageous.boon.Str;
+import io.advantageous.boon.core.Sys;
+import io.advantageous.boon.core.reflection.ClassMeta;
 import io.advantageous.qbit.client.ClientProxy;
 import io.advantageous.qbit.events.EventBusProxyCreator;
 import io.advantageous.qbit.events.EventManager;
-import org.boon.Str;
-import org.boon.core.Sys;
-import org.boon.core.reflection.AnnotationData;
-import org.boon.core.reflection.ClassMeta;
+import io.advantageous.boon.core.reflection.AnnotationData;
 
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Proxy;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+import static io.advantageous.boon.core.reflection.ClassMeta.classMeta;
 import static io.advantageous.qbit.service.ServiceProxyUtils.flushServiceProxy;
-import static org.boon.core.reflection.ClassMeta.classMeta;
 
-/**
- * Created by rhightower on 2/11/15.
- */
 public class BoonEventBusProxyCreator implements EventBusProxyCreator {
 
     /* I don't think anyone will ever want to change this but they can via a system property. */
-    public static final String EVENT_CHANNEL_ANNOTATION_NAME = Sys.sysProp("io.advantageous.qbit.events.EventBusProxyCreator.eventChannelName", "EventChannel");
+    public static final String EVENT_CHANNEL_ANNOTATION_NAME =
+            Sys.sysProp("io.advantageous.qbit.events.EventBusProxyCreator.eventChannelName", "EventChannel");
+
+
+    private static final String flushMethodNames =  Sys.sysProp("io.advantageous.qbit.events.EventBusProxyCreator.flushMethodNames",
+            "clientProxyFlush,flushEvents");
+
+
+    private final Set<String> flushMethodNameSet = Sets.set(Str.split(flushMethodNames, ','));
+
 
     @Override
     public <T> T createProxy(final EventManager eventManager, final Class<T> eventBusProxyInterface) {
@@ -58,7 +66,7 @@ public class BoonEventBusProxyCreator implements EventBusProxyCreator {
 
         final InvocationHandler invocationHandler = (proxy, method, args) -> {
 
-            if (method.getName().equals("clientProxyFlush")) {
+            if (flushMethodNameSet.contains(method.getName())) {
                 flushServiceProxy(eventManager);
                 return null;
             }
@@ -85,11 +93,13 @@ public class BoonEventBusProxyCreator implements EventBusProxyCreator {
         classMeta.methods().forEach(methodAccess -> {
 
             AnnotationData methodAnnotation = methodAccess.annotation("EventChannel");
-            final String methodEventBusName = methodAnnotation != null ? methodAnnotation.getValues().get("value").toString() : null;
+            if (methodAnnotation !=null) {
+                final String methodEventBusName = methodAnnotation.getValues().get("value").toString();
 
 
-            final String channelName = createChannelName(channelPrefix, classEventBusName, methodEventBusName);
-            methodToChannelMap.put(methodAccess.method().toString(), channelName);
+                final String channelName = createChannelName(channelPrefix, classEventBusName, methodEventBusName);
+                methodToChannelMap.put(methodAccess.method().toString(), channelName);
+            }
         });
 
         return methodToChannelMap;

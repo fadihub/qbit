@@ -25,6 +25,7 @@ include ':qbit-vertx'
 include 'qbit-servlet'
 include 'qbit-jetty'
 include ':qbit-admin'
+include 'consul-client'
 
 
 include ':qbit-examples'
@@ -54,4 +55,8 @@ project(':qbit-sample-server').projectDir = "$rootDir/qbit-examples/qbit-sample-
 project(':qbit-examples-standalone').projectDir = "$rootDir/qbit-examples/qbit-examples-standalone" as File
 
 
+
+include 'qbit-eventbus-replicator'
+
+include 'boon'
 

@@ -23,15 +23,19 @@ import io.advantageous.qbit.message.MethodCall;
 import io.advantageous.qbit.message.Response;
 import io.advantageous.qbit.queue.ReceiveQueue;
 import io.advantageous.qbit.queue.SendQueue;
-import io.advantageous.qbit.service.Service;
+import io.advantageous.qbit.service.Callback;
+import io.advantageous.qbit.service.ServiceQueue;
 import io.advantageous.qbit.spi.RegisterBoonWithQBit;
-import org.boon.core.Sys;
+import io.advantageous.boon.core.Sys;
 import org.junit.Test;
 
 import java.util.Date;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
-import static org.boon.Exceptions.die;
+import static io.advantageous.boon.Exceptions.die;
+import static io.advantageous.qbit.service.ServiceBuilder.serviceBuilder;
 
 /**
  * Created by rhightower on 10/24/14.
@@ -42,20 +46,14 @@ public class TodoServiceWithQBitServiceTest {
 
     boolean ok;
 
-    static {
-
-        /** Boon is the default implementation but there can be others. */
-        RegisterBoonWithQBit.registerBoonWithQBit();
-    }
-
     @Test
     public void testCallbackWithObjectNameAndMethodName() {
 
 
-        Service service = QBit.factory().createService("/services", "/todo-service", new TodoService(), null, null).start();
+        ServiceQueue serviceQueue = QBit.factory().createService("/services", "/todo-service", new TodoService(), null, null).start();
 
 
-        SendQueue<MethodCall<Object>> requests = service.requests();
+        SendQueue<MethodCall<Object>> requests = serviceQueue.requests();
 
         TodoItem todoItem = new TodoItem("call mom", "give mom a call", new Date());
         MethodCall<Object> addMethodCall = QBit.factory().createMethodCallByNames("add", "/todo-service", "call1:localhost", todoItem, null);
@@ -69,7 +67,7 @@ public class TodoServiceWithQBitServiceTest {
 
         Sys.sleep(100);
 
-        ReceiveQueue<Response<Object>> responses = service.responses();
+        ReceiveQueue<Response<Object>> responses = serviceQueue.responses();
 
         Response<Object> response = responses.take();
 
@@ -92,12 +90,40 @@ public class TodoServiceWithQBitServiceTest {
 
 
     @Test
+    public void testUsingProxyWithAutoFlush() {
+
+
+        /* Create a service that lives behind a ServiceQueue. */
+        ServiceQueue serviceQueue = serviceBuilder()
+                                    .setServiceAddress("/todo-service")
+                                    .setServiceObject(new TodoService())
+                                    .build();
+
+        serviceQueue.start().startCallBackHandler();
+
+        TodoServiceClient todoServiceClient =
+                serviceQueue.createProxyWithAutoFlush(TodoServiceClient.class, 50, TimeUnit.MILLISECONDS);
+
+        todoServiceClient.add(new TodoItem("foo", "foo", null));
+
+        AtomicReference<List<TodoItem>> items = new AtomicReference<>();
+        todoServiceClient.list(todoItems -> items.set(todoItems));
+
+        Sys.sleep(200);
+
+        ok = items.get()!=null || die();
+        ok = items.get().size() > 0 || die();
+        ok = items.get().get(0).getDescription().equals("foo") || die();
+
+    }
+
+    @Test
     public void testCallbackWithAddress() {
 
 
-        Service service = QBit.factory().createService("/services", "/todo-service", new TodoService(), null, null).start();
+        ServiceQueue serviceQueue = QBit.factory().createService("/services", "/todo-service", new TodoService(), null, null).start();
 
-        SendQueue<MethodCall<Object>> requests = service.requests();
+        SendQueue<MethodCall<Object>> requests = serviceQueue.requests();
 
         TodoItem todoItem = new TodoItem("call mom", "give mom a call", new Date());
         MethodCall<Object> addMethodCall = QBit.factory().createMethodCallByAddress("/services/todo-service/add", "call1:localhost", todoItem, null);
@@ -111,7 +137,7 @@ public class TodoServiceWithQBitServiceTest {
 
         Sys.sleep(100);
 
-        ReceiveQueue<Response<Object>> responses = service.responses();
+        ReceiveQueue<Response<Object>> responses = serviceQueue.responses();
 
         Response<Object> response = responses.take();
 

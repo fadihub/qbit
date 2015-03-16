@@ -18,9 +18,17 @@
 
 package io.advantageous.qbit.server;
 
+import io.advantageous.boon.Str;
+import io.advantageous.boon.StringScanner;
+import io.advantageous.boon.core.reflection.AnnotationData;
+import io.advantageous.boon.core.reflection.ClassMeta;
+import io.advantageous.boon.core.reflection.MethodAccess;
 import io.advantageous.qbit.GlobalConstants;
 import io.advantageous.qbit.QBit;
 import io.advantageous.qbit.annotation.RequestMethod;
+
+import static io.advantageous.boon.Boon.puts;
+import static io.advantageous.boon.Boon.sputs;
 import static io.advantageous.qbit.bindings.HttpMethod.*;
 
 import io.advantageous.qbit.bindings.HttpMethod;
@@ -37,11 +45,6 @@ import io.advantageous.qbit.spi.ProtocolEncoder;
 import io.advantageous.qbit.spi.ProtocolParser;
 import io.advantageous.qbit.util.MultiMap;
 import io.advantageous.qbit.util.Timer;
-import org.boon.Str;
-import org.boon.StringScanner;
-import org.boon.core.reflection.AnnotationData;
-import org.boon.core.reflection.ClassMeta;
-import org.boon.core.reflection.MethodAccess;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -53,17 +56,12 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-import static org.boon.Boon.puts;
-import static org.boon.Boon.sputs;
-
 /**
  * @author rhightower on 1/27/15.
  */
 public class HttpRequestServiceServerHandler {
 
     protected final int timeoutInSeconds;
-    protected final ProtocolEncoder encoder;
-    protected final ProtocolParser parser;
     protected final JsonMapper jsonMapper; //TODO make this a TLV and use a thread pool just in case we have large JSON payloads
     protected final long flushInterval;
     private final Logger logger = LoggerFactory.getLogger(HttpRequestServiceServerHandler.class);
@@ -102,11 +100,11 @@ public class HttpRequestServiceServerHandler {
     }
 
 
-    public HttpRequestServiceServerHandler(int timeoutInSeconds, ProtocolEncoder encoder, ProtocolParser parser, ServiceBundle serviceBundle, JsonMapper jsonMapper, final int numberOfOutstandingRequests, int flushInterval) {
+    public HttpRequestServiceServerHandler(int timeoutInSeconds, ServiceBundle serviceBundle,
+                                           JsonMapper jsonMapper, final int numberOfOutstandingRequests,
+                                           int flushInterval) {
         this.timeoutInSeconds = timeoutInSeconds;
         lastTimeoutCheckTime = Timer.timer().now() + ( timeoutInSeconds * 1000 );
-        this.encoder = encoder;
-        this.parser = parser;
         this.jsonMapper = jsonMapper;
         this.numberOfOutstandingRequests = numberOfOutstandingRequests;
 
@@ -116,6 +114,7 @@ public class HttpRequestServiceServerHandler {
         httpMethodHandlerInfoMap.put(GET.name(), new HttpMethodHandlerInfo(GET, false));
         httpMethodHandlerInfoMap.put(HEAD.name(), new HttpMethodHandlerInfo(HEAD, false));
         httpMethodHandlerInfoMap.put(TRACE.name(), new HttpMethodHandlerInfo(TRACE, false)); //You can ignore with 404 if it has a body according to RFC
+        httpMethodHandlerInfoMap.put(WEB_SOCKET.name(), new HttpMethodHandlerInfo(TRACE, false)); //You can ignore with 404 if it has a body according to RFC
 
         httpMethodHandlerInfoMap.put(OPTIONS.name(), new HttpMethodHandlerInfo(OPTIONS, true)); //Collect meta-data, body not defined but not forbidden
         httpMethodHandlerInfoMap.put(DELETE.name(), new HttpMethodHandlerInfo(DELETE, true)); //Body not forbidden
@@ -349,7 +348,7 @@ public class HttpRequestServiceServerHandler {
     /**
      * Gets the URI from a method annotation
      *
-     * @param methodValuesForAnnotation
+     * @param methodValuesForAnnotation method values for annotation
      * @return URI
      */
     private String extractMethodURI(Map<String, Object> methodValuesForAnnotation) {

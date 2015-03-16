@@ -18,22 +18,22 @@
 
 package io.advantageous.qbit.service.impl;
 
+import io.advantageous.boon.Lists;
+import io.advantageous.boon.core.Sys;
 import io.advantageous.qbit.Services;
 import io.advantageous.qbit.message.MethodCall;
 import io.advantageous.qbit.message.MethodCallBuilder;
 import io.advantageous.qbit.message.Response;
 import io.advantageous.qbit.queue.ReceiveQueue;
 import io.advantageous.qbit.queue.SendQueue;
-import io.advantageous.qbit.service.Service;
-import org.boon.Lists;
-import org.boon.core.Sys;
+import io.advantageous.qbit.service.ServiceQueue;
 import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-import static org.boon.Exceptions.die;
+import static io.advantageous.boon.Exceptions.die;
 
 /**
  * Created by Richard on 8/26/14.
@@ -46,9 +46,9 @@ public class RegularCalls {
     public void test() {
 
         Adder adder = new Adder();
-        Service service = Services.regularService("test", adder, 1000, TimeUnit.MILLISECONDS, 10);
-        SendQueue<MethodCall<Object>> requests = service.requests();
-        ReceiveQueue<Response<Object>> responses = service.responses();
+        ServiceQueue serviceQueue = Services.regularService("test", adder, 1000, TimeUnit.MILLISECONDS, 10);
+        SendQueue<MethodCall<Object>> requests = serviceQueue.requests();
+        ReceiveQueue<Response<Object>> responses = serviceQueue.responses();
 
         requests.send(new MethodCallBuilder().setName("add").setBody(Lists.list(1, 2)).build());
 
@@ -90,7 +90,7 @@ public class RegularCalls {
             ok = adder.all == 3012 || die(adder.all);
         }
 
-        service.stop();
+        serviceQueue.stop();
 
         Sys.sleep(100);
 
@@ -102,9 +102,9 @@ public class RegularCalls {
         Adder adder = new Adder();
 
 
-        Service service = Services.regularService("test", adder, 1000, TimeUnit.MILLISECONDS, 10);
-        SendQueue<MethodCall<Object>> requests = service.requests();
-        ReceiveQueue<Response<Object>> responses = service.responses();
+        ServiceQueue serviceQueue = Services.regularService("test", adder, 1000, TimeUnit.MILLISECONDS, 10);
+        SendQueue<MethodCall<Object>> requests = serviceQueue.requests();
+        ReceiveQueue<Response<Object>> responses = serviceQueue.responses();
 
         requests.sendMany(MethodCallBuilder.method("add", Lists.list(1, 2)), MethodCallBuilder.method("add", Lists.list(4, 5)));
 
@@ -134,9 +134,9 @@ public class RegularCalls {
     public void testBatch() {
 
         Adder adder = new Adder();
-        Service service = Services.regularService("test", adder, 1000, TimeUnit.MILLISECONDS, 10);
-        SendQueue<MethodCall<Object>> requests = service.requests();
-        ReceiveQueue<Response<Object>> responses = service.responses();
+        ServiceQueue serviceQueue = Services.regularService("test", adder, 1000, TimeUnit.MILLISECONDS, 10);
+        SendQueue<MethodCall<Object>> requests = serviceQueue.requests();
+        ReceiveQueue<Response<Object>> responses = serviceQueue.responses();
 
         List<MethodCall<Object>> methods = Lists.list(MethodCallBuilder.method("add", Lists.list(1, 2)), MethodCallBuilder.method("add", Lists.list(4, 5)));
 

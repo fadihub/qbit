@@ -19,8 +19,11 @@
 package io.advantageous.qbit;
 
 import io.advantageous.qbit.client.Client;
+import io.advantageous.qbit.concurrent.PeriodicScheduler;
 import io.advantageous.qbit.events.EventBusProxyCreator;
+import io.advantageous.qbit.events.spi.EventConnector;
 import io.advantageous.qbit.events.EventManager;
+import io.advantageous.qbit.http.HttpTransport;
 import io.advantageous.qbit.http.client.HttpClient;
 import io.advantageous.qbit.http.config.HttpServerOptions;
 import io.advantageous.qbit.http.server.HttpServer;
@@ -33,7 +36,7 @@ import io.advantageous.qbit.queue.QueueBuilder;
 import io.advantageous.qbit.sender.Sender;
 import io.advantageous.qbit.server.ServiceServer;
 import io.advantageous.qbit.service.BeforeMethodCall;
-import io.advantageous.qbit.service.Service;
+import io.advantageous.qbit.service.ServiceQueue;
 import io.advantageous.qbit.service.ServiceBundle;
 import io.advantageous.qbit.service.ServiceMethodHandler;
 import io.advantageous.qbit.spi.FactorySPI;
@@ -44,6 +47,7 @@ import io.advantageous.qbit.transforms.Transformer;
 import io.advantageous.qbit.util.MultiMap;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Main factory for QBit. This gets used internally to createWithWorkers / parse methods.
@@ -51,6 +55,15 @@ import java.util.List;
  * @author rhightower
  */
 public interface Factory {
+
+
+    default PeriodicScheduler createPeriodicScheduler(int poolSize) {
+        throw new IllegalStateException("Not implemented");
+    }
+
+    default PeriodicScheduler periodicScheduler(){
+        throw new IllegalStateException("Not implemented");
+    }
 
     /**
      * Create a method call based on a body that we are parsing from  a POST body or WebSocket message for example.
@@ -105,22 +118,9 @@ public interface Factory {
     }
 
 
-    /**
-     * String address, final int batchSize, final int pollRate,
-     final Factory factory, final boolean asyncCalls,
-     final BeforeMethodCall beforeMethodCall,
-     final BeforeMethodCall beforeMethodCallAfterTransform,
-     final Transformer<Request, Object> argTransformer
-     */
-
-    /**
-     * Create a service bundle.
-     *
-     * @param address    service path to bundle (base URI really)
-     * @param asyncCalls service calls
-     * @return new client bundle
-     */
-    default ServiceBundle createServiceBundle(String address, final QueueBuilder queueBuilder,
+    default ServiceBundle createServiceBundle(String address,
+                                              final QueueBuilder requestQueueBuilder,
+                                              final QueueBuilder responseQueueBuilder,
                                               final Factory factory, final boolean asyncCalls,
                                               final BeforeMethodCall beforeMethodCall,
                                               final BeforeMethodCall beforeMethodCallAfterTransform,
@@ -135,19 +135,11 @@ public interface Factory {
         throw new UnsupportedOperationException();
     }
 
-    /**
-     * Create a client
-     *
-     * @param rootAddress    base URI
-     * @param serviceAddress client address URI
-     * @param object         object that implements the client
-     * @param responseQueue  the response queue.
-     * @return new Service that was created
-     */
-    default Service createService(String rootAddress, String serviceAddress,
+    default ServiceQueue createService(String rootAddress, String serviceAddress,
                                   Object object,
                                   Queue<Response<Object>> responseQueue,
-                                  final QueueBuilder queueBuilder,
+                                  final QueueBuilder requestQueueBuilder,
+                                  final QueueBuilder responseQueueBuilder,
                                   boolean asyncCalls,
                                   boolean invokeDynamic,
                                   boolean handleCallbacks,
@@ -163,9 +155,10 @@ public interface Factory {
      * @param serviceAddress client address URI
      * @param object         object that implements the client
      * @param responseQueue  the response queue.
+     * @param systemManager system manager
      * @return new Service that was created
      */
-    default Service createService(String rootAddress, String serviceAddress,
+    default ServiceQueue createService(String rootAddress, String serviceAddress,
                                   Object object,
                                   Queue<Response<Object>> responseQueue,
                                   final QBitSystemManager systemManager) {
@@ -219,18 +212,27 @@ public interface Factory {
     }
 
     /**
-     * Create a remote proxy using a sender that knows how to send method body over wire
+     * Create a remote proxy using a sender that knows how to forwardEvent method body over wire
      *
      * @param serviceInterface client view of client
      * @param uri              uri of client
+     *
      * @param serviceName      name of the client that we are proxying method calls to.
+     * @param port port
+     * @param host host
+     * @param connected connected
      * @param returnAddressArg return address
      * @param sender           how we are sending the message over the wire
      * @param beforeMethodCall before method call
      * @param <T>              type of client
+     * @param requestBatchSize request batch size
      * @return remote proxy
      */
-    default <T> T createRemoteProxyWithReturnAddress(Class<T> serviceInterface, String uri, String serviceName, String returnAddressArg,
+    default <T> T createRemoteProxyWithReturnAddress(Class<T> serviceInterface, String uri, String serviceName,
+                                                     String host,
+                                                     int port,
+                                                     AtomicBoolean connected,
+                                                     String returnAddressArg,
                                                      Sender<String> sender,
                                                      BeforeMethodCall beforeMethodCall,
                                                      int requestBatchSize) {
@@ -307,7 +309,7 @@ public interface Factory {
         return FactorySPI.getEventManagerFactory().createEventManager();
     }
 
-    default ServiceServer createServiceServer(final HttpServer httpServer,
+    default ServiceServer createServiceServer(final HttpTransport httpServer,
                                               final ProtocolEncoder encoder,
                                               final ProtocolParser protocolParser,
                                               final ServiceBundle serviceBundle,
@@ -356,4 +358,10 @@ public interface Factory {
                                         QBitSystemManager systemManager) {
         throw new UnsupportedOperationException();
     }
+
+
+    default EventManager createEventManagerWithConnector(EventConnector eventConnector) {
+        throw new UnsupportedOperationException();
+    }
+
 }

@@ -28,7 +28,7 @@ import io.advantageous.qbit.queue.ReceiveQueueListener;
 import io.advantageous.qbit.service.impl.NoOpAfterMethodCall;
 import io.advantageous.qbit.service.impl.NoOpInputMethodCallQueueListener;
 import io.advantageous.qbit.service.impl.ServiceConstants;
-import io.advantageous.qbit.service.impl.ServiceImpl;
+import io.advantageous.qbit.service.impl.ServiceQueueImpl;
 import io.advantageous.qbit.system.QBitSystemManager;
 import io.advantageous.qbit.transforms.NoOpResponseTransformer;
 import io.advantageous.qbit.transforms.Transformer;
@@ -53,7 +53,7 @@ public class ServiceBuilder {
     private Transformer<Request, Object> requestObjectTransformer = ServiceConstants.NO_OP_ARG_TRANSFORM;
     private Transformer<Response<Object>, Response> responseObjectTransformer = new NoOpResponseTransformer();
     private Queue<Response<Object>> responseQueue;
-    private QueueBuilder queueBuilder;
+    private QueueBuilder requestQueueBuilder;
     private QueueBuilder responseQueueBuilder = new QueueBuilder();
     private boolean asyncResponse = true;
     private boolean invokeDynamic = true;
@@ -201,12 +201,12 @@ public class ServiceBuilder {
 
     }
 
-    public QueueBuilder getQueueBuilder() {
-        return queueBuilder;
+    public QueueBuilder getRequestQueueBuilder() {
+        return requestQueueBuilder;
     }
 
-    public ServiceBuilder setQueueBuilder(QueueBuilder queueBuilder) {
-        this.queueBuilder = queueBuilder;
+    public ServiceBuilder setRequestQueueBuilder(QueueBuilder requestQueueBuilder) {
+        this.requestQueueBuilder = requestQueueBuilder;
         return this;
 
     }
@@ -240,33 +240,42 @@ public class ServiceBuilder {
     }
 
 
-    public Service build(final Object serviceObject) {
+    public ServiceQueue build(final Object serviceObject) {
         this.serviceObject = serviceObject;
         return build();
     }
 
-    public Service build() {
+    public ServiceQueue build() {
 
-        if (this.getResponseQueue() == null) {
 
-            this.setResponseQueue(responseQueueBuilder.build());
-        }
 
-        Service service = new ServiceImpl(this.getRootAddress(),
+
+        ServiceQueue serviceQueue = new ServiceQueueImpl(this.getRootAddress(),
                 this.getServiceAddress(),
                 this.getServiceObject(),
-                this.getQueueBuilder(),
+                this.getRequestQueueBuilder(),
+                this.getResponseQueueBuilder(),
                 QBit.factory().createServiceMethodHandler(this.isInvokeDynamic()),
-                this.getResponseQueue(), this.isAsyncResponse(), this.isHandleCallbacks(), this.getSystemManager());
+                this.getResponseQueue(),
+                this.isAsyncResponse(),
+                this.isHandleCallbacks(),
+                this.getSystemManager());
 
-        if (service != null && qBitSystemManager != null) {
-            qBitSystemManager.registerService(service);
+        if (serviceQueue != null && qBitSystemManager != null) {
+            qBitSystemManager.registerService(serviceQueue);
         }
 
-        return service;
+        return serviceQueue;
     }
 
-    public Service buildAndStart() {
+    /**
+     * Builds and starts the service queue.  This is depricated because a builder should not perform operations on it's
+     * product
+     *
+     * @return the service queue
+     */
+    @Deprecated
+    public ServiceQueue buildAndStart() {
 
         return build().start();
     }

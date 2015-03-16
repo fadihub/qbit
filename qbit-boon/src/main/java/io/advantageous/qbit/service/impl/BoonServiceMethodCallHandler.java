@@ -18,6 +18,17 @@
 
 package io.advantageous.qbit.service.impl;
 
+import io.advantageous.boon.Lists;
+import io.advantageous.boon.Pair;
+import io.advantageous.boon.Str;
+import io.advantageous.boon.StringScanner;
+import io.advantageous.boon.core.Conversions;
+import io.advantageous.boon.core.TypeType;
+import io.advantageous.boon.core.reflection.Annotated;
+import io.advantageous.boon.core.reflection.AnnotationData;
+import io.advantageous.boon.core.reflection.ClassMeta;
+import io.advantageous.boon.core.reflection.MethodAccess;
+import io.advantageous.boon.primitive.Arry;
 import io.advantageous.qbit.annotation.RequestMethod;
 import io.advantageous.qbit.bindings.ArgParamBinding;
 import io.advantageous.qbit.bindings.MethodBinding;
@@ -33,24 +44,15 @@ import io.advantageous.qbit.queue.SendQueue;
 import io.advantageous.qbit.service.Callback;
 import io.advantageous.qbit.service.ServiceMethodHandler;
 import io.advantageous.qbit.util.MultiMap;
-import org.boon.Lists;
-import org.boon.Pair;
-import org.boon.Str;
-import org.boon.StringScanner;
-import org.boon.core.Conversions;
-import org.boon.core.TypeType;
-import org.boon.core.reflection.Annotated;
-import org.boon.core.reflection.AnnotationData;
-import org.boon.core.reflection.ClassMeta;
-import org.boon.core.reflection.MethodAccess;
-import org.boon.primitive.Arry;
 
 import java.lang.reflect.InvocationTargetException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
+import static io.advantageous.boon.Boon.puts;
+import static io.advantageous.boon.Boon.sputs;
+import static io.advantageous.boon.Exceptions.die;
 import static io.advantageous.qbit.annotation.AnnotationUtils.getListenAnnotation;
-import static org.boon.Exceptions.die;
 
 /**
  * Created by Richard on 9/8/14.
@@ -105,6 +107,7 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
         final Request<Object> request = methodCall.originatingRequest();
 
         Pair<MethodBinding, MethodAccess> binding = null;
+
 
         if (mappings != null && request instanceof HttpRequest) {
             HttpRequest httpRequest = ((HttpRequest) request);
@@ -206,7 +209,10 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
 
     }
 
-    private Response<Object> invokeByAddressWithSimpleBinding(MethodCall<Object> methodCall, Pair<MethodBinding, MethodAccess> pair) {
+    private Response<Object> invokeByAddressWithSimpleBinding(
+            final MethodCall<Object> methodCall,
+            final Pair<MethodBinding, MethodAccess> pair
+           ) {
 
         final MethodBinding binding = pair.getFirst();
 
@@ -354,11 +360,11 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
             extractHandlersFromArgumentListBodyIsList(method, argsList, list);
 
         } else if (body instanceof Object[]) {
-            extactHandlersFromArgumentListArrayCase(method, (Object[]) body, argsList);
+            extractHandlersFromArgumentListArrayCase(method, (Object[]) body, argsList);
         }
     }
 
-    private void extactHandlersFromArgumentListArrayCase(MethodAccess method, Object[] array, List<Object> argsList) {
+    private void extractHandlersFromArgumentListArrayCase(MethodAccess method, Object[] array, List<Object> argsList) {
 
         if (array.length - 1 == method.parameterTypes().length) {
             if (array[0] instanceof Callback) {
@@ -367,7 +373,7 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
         }
 
 
-        for (int index = 0, arrayIndex = 0; index < argsList.size(); index++) {
+        for (int index = 0, arrayIndex = 0; index < argsList.size(); index++, arrayIndex++) {
 
             final Object o = argsList.get(index);
             if (o instanceof Callback) {
@@ -381,7 +387,6 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
 
 
             argsList.set(index, array[arrayIndex]);
-            arrayIndex++;
 
         }
     }
@@ -467,8 +472,10 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
         return ResponseImpl.response(methodCall.id(), methodCall.timestamp(), methodCall.name(), methodCall.returnAddress(), returnValue, methodCall);
     }
 
-    private Object bodyFromRequestParams(MethodAccess method, MethodCall<Object> methodCall, MethodBinding binding) {
-        final MultiMap<String, String> params = methodCall.params();
+    private Object bodyFromRequestParams(final MethodAccess method,
+                                         final MethodCall<Object> methodCall,
+                                         final MethodBinding binding) {
+
 
         final Class<?>[] parameterTypes = method.parameterTypes();
 
@@ -501,13 +508,16 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
                 }
             } else {
                 if (paramBinding.isRequired()) {
-                    if (!params.containsKey(paramBinding.getName())) {
+                    if (!methodCall.params().containsKey(paramBinding.getName())) {
                         die("Method call missing required parameter", "\nParam Name", paramBinding.getName(), "\nMethod Call", methodCall, "\nFor method binding\n", binding, "\nFor method\n", method);
 
                     }
                 }
                 final String name = paramBinding.getName();
-                Object objectItem = params.getSingleObject(name);
+                Object objectItem = methodCall.params().getSingleObject(name);
+                if (objectItem == null || objectItem.equals("")) {
+                    objectItem = paramBinding.getDefaultValue();
+                }
                 objectItem = Conversions.coerce(parameterTypes[index], objectItem);
 
                 argsList.set(index, objectItem);
@@ -537,11 +547,43 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
 
     private Response<Object> invokeByName(MethodCall<Object> methodCall) {
         final MethodAccess method = classMeta.method(methodCall.name());
-        return mapArgsAsyncHandlersAndInvoke(methodCall, method);
+
+        if (method != null) {
+            return mapArgsAsyncHandlersAndInvoke(methodCall, method);
+        } else {
+
+           if (methodCall.name().equals("toString")){
+               puts("Method Call toString was called", methodCall.objectName(), methodCall.name(), methodCall.address());
+
+               return ResponseImpl.response(
+                       methodCall.id(),
+                       methodCall.timestamp(),
+                       methodCall.address(),
+                       methodCall.returnAddress(),
+                       sputs("Method Call toString was called", methodCall.objectName(), methodCall.name(), methodCall.address()),
+                       methodCall, false);
+
+           } else {
+               return ResponseImpl.response(
+                       methodCall.id(),
+                       methodCall.timestamp(),
+                       methodCall.address(),
+                       methodCall.returnAddress(),
+                       new Exception("Unable to find method"),
+                       methodCall, true);
+           }
+        }
     }
 
-    public void init(Object service, String rootAddress, String serviceAddress) {
 
+    @Override
+    public void init(
+                     Object service,
+                     String rootAddress,
+                     String serviceAddress,
+                     SendQueue<Response<Object>> responseSendQueue) {
+
+        this.responseSendQueue = responseSendQueue;
         this.service = service;
         classMeta = (ClassMeta<Class<?>>) (Object) ClassMeta.classMeta(service.getClass());
         if (Str.isEmpty(serviceAddress)) {
@@ -699,10 +741,6 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
         return addresses;
     }
 
-    @Override
-    public void initQueue(SendQueue<Response<Object>> responseSendQueue) {
-        this.responseSendQueue = responseSendQueue;
-    }
 
     @Override
     public void queueInit() {
@@ -714,7 +752,7 @@ public class BoonServiceMethodCallHandler implements ServiceMethodHandler {
     @Override
     public void handleEvent(Event<Object> event) {
 
-        MethodAccess methodAccess = eventMap.get(event.topic());
+        MethodAccess methodAccess = eventMap.get(event.channel());
 
 
         if (invokeDynamic) {

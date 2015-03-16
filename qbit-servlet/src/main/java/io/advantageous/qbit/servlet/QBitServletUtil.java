@@ -21,7 +21,7 @@ package io.advantageous.qbit.servlet;
 import io.advantageous.qbit.http.request.HttpRequest;
 import io.advantageous.qbit.http.request.HttpRequestBuilder;
 import io.advantageous.qbit.util.MultiMap;
-import org.boon.IO;
+import io.advantageous.boon.IO;
 
 import javax.servlet.AsyncContext;
 import javax.servlet.ServletInputStream;
@@ -44,8 +44,10 @@ public class QBitServletUtil {
         final HttpServletResponse response = (HttpServletResponse) asyncContext.getResponse();
         final MultiMap<String, String> headers = new HttpServletHeaderMultiMap(request);
         final MultiMap<String, String> params = new HttpServletParamMultiMap(request);
+
+
         final HttpRequestBuilder httpRequestBuilder = httpRequestBuilder().setParams(params)
-                .setHeaders(headers).setUri(request.getPathInfo())
+                .setHeaders(headers).setUri(request.getRequestURI())
                 .setMethod(request.getMethod());
 
         setRequestBodyIfNeeded(request, httpRequestBuilder);
@@ -58,7 +60,10 @@ public class QBitServletUtil {
                                             final HttpRequestBuilder httpRequestBuilder) {
 
         httpRequestBuilder.setTextReceiver((code, contentType, body) -> {
+
+
             response.setHeader("Content-Type", contentType);
+            response.setStatus(code);
             try {
                 final ServletOutputStream outputStream = response.getOutputStream();
                 outputStream.write(body.getBytes(StandardCharsets.UTF_8));

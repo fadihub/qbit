@@ -18,6 +18,11 @@
 
 package io.advantageous.qbit;
 
+import io.advantageous.boon.Boon;
+import io.advantageous.boon.Exceptions;
+import io.advantageous.boon.Lists;
+import io.advantageous.boon.Str;
+import io.advantageous.boon.core.Sys;
 import io.advantageous.qbit.message.MethodCall;
 import io.advantageous.qbit.message.Response;
 import io.advantageous.qbit.queue.ReceiveQueue;
@@ -29,11 +34,6 @@ import io.advantageous.qbit.spi.BoonProtocolEncoder;
 import io.advantageous.qbit.spi.ProtocolEncoder;
 import io.advantageous.qbit.spi.RegisterBoonWithQBit;
 import io.advantageous.qbit.util.MultiMap;
-import org.boon.Boon;
-import org.boon.Exceptions;
-import org.boon.Lists;
-import org.boon.Str;
-import org.boon.core.Sys;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -41,7 +41,8 @@ import java.math.BigDecimal;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-import static org.boon.Boon.puts;
+import static io.advantageous.boon.Boon.puts;
+
 
 /**
  * @author  Richard on 9/27/14.
@@ -49,10 +50,6 @@ import static org.boon.Boon.puts;
 public class IntegrationForJSONInputForPOSTAndWebSocketBodiesTest {
 
 
-    static {
-        RegisterBoonWithQBit.registerBoonWithQBit();
-
-    }
 
     EmployeeService employeeService;
     ServiceBundle serviceBundle;
@@ -127,7 +124,7 @@ public class IntegrationForJSONInputForPOSTAndWebSocketBodiesTest {
         String addressToMethodCall = "/root/empservice/addEmployee";
 
         /* Create employee client */
-        serviceBundle.addService("/empservice/", employeeService);
+        serviceBundle.addServiceObject("/empservice/", employeeService);
 
 
         call = factory.createMethodCallByAddress(addressToMethodCall, returnAddress, rick, params);
@@ -149,7 +146,7 @@ public class IntegrationForJSONInputForPOSTAndWebSocketBodiesTest {
         String addressToMethodCall = "/root/empservice/addEmployee";
 
         /* Create employee client */
-        serviceBundle.addService("/empservice/", employeeService);
+        serviceBundle.addServiceObject("/empservice/", employeeService);
 
 
         call = factory.createMethodCallByAddress(addressToMethodCall, returnAddress, rick, params);
@@ -242,8 +239,10 @@ public class IntegrationForJSONInputForPOSTAndWebSocketBodiesTest {
         puts("\nPROTOCOL\n", qbitStringBody.replace(( char ) Protocol.PROTOCOL_SEPARATOR, '\n').replace(( char ) Protocol.PROTOCOL_ARG_SEPARATOR, '\n'), "\nPROTOCOL END\n");
         call = factory.createMethodCallToBeParsedFromBody(null, null, null, null, qbitStringBody, null);
         serviceBundle.call(call);
-        serviceBundle.flush();
+        serviceBundle.flushSends();
         Sys.sleep(100);
+        serviceBundle.flush();
+        Sys.sleep(200);
     }
 
     public static class Employee {

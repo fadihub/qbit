@@ -18,9 +18,9 @@
 
 package io.advantageous.qbit.service.impl.queuecallbacks;
 
+import io.advantageous.boon.core.reflection.ClassMeta;
+import io.advantageous.boon.core.reflection.MethodAccess;
 import io.advantageous.qbit.queue.QueueCallBackHandler;
-import org.boon.core.reflection.ClassMeta;
-import org.boon.core.reflection.MethodAccess;
 
 /**
  * Created by rhightower on 2/10/15.
@@ -35,10 +35,11 @@ public class DynamicQueueCallbackHandler implements QueueCallBackHandler {
     private final MethodAccess queueLimit;
     private final MethodAccess queueShutdown;
     private final MethodAccess queueIdle;
-    private ClassMeta<Class<?>> classMeta;
 
 
     public DynamicQueueCallbackHandler(Object service) {
+        final ClassMeta<Class<?>> classMeta;
+
         this.service = service;
         classMeta = (ClassMeta<Class<?>>) ClassMeta.classMeta(service.getClass());
 

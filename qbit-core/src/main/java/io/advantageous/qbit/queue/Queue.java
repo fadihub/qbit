@@ -18,9 +18,15 @@
 
 package io.advantageous.qbit.queue;
 
+import io.advantageous.qbit.QBit;
+import io.advantageous.qbit.concurrent.PeriodicScheduler;
+import io.advantageous.qbit.queue.impl.AutoFlushingSendQueue;
+
+import java.util.concurrent.TimeUnit;
+
 /**
  * Represents a queue manager.
- * Queues are split up into receivers views and send views to facilitate batching.
+ * Queues are split up into receivers views and forwardEvent views to facilitate batching.
  * Created by Richard on 8/4/14.
  *
  * @author rhightower
@@ -35,15 +41,30 @@ public interface Queue<T> {
     ReceiveQueue<T> receiveQueue();
 
     /**
-     * This returns a NON-thread safe send queue.
+     * This returns a NON-thread safe forwardEvent queue.
      * It is not thread safe so that you can batch sends to minimize thread hand-off
-     * and to maximize IO throughput. Each call to this method returns a send queue
+     * and to maximize IO throughput. Each call to this method returns a forwardEvent queue
      * that can only be access from one thread.
      * You get MT behavior by having a SendQueue per thread.
      *
-     * @return send queue
+     * @return forwardEvent queue
      */
     SendQueue<T> sendQueue();
+
+
+    default SendQueue<T> sendQueueWithAutoFlush(final int interval, final TimeUnit timeUnit) {
+
+        PeriodicScheduler periodicScheduler = QBit.factory().periodicScheduler();
+
+        return sendQueueWithAutoFlush(periodicScheduler, interval, timeUnit);
+    }
+
+    default SendQueue<T> sendQueueWithAutoFlush(final PeriodicScheduler periodicScheduler,
+                                                final int interval, final TimeUnit timeUnit) {
+
+        SendQueue<T> sendQueue = sendQueue();
+        return new AutoFlushingSendQueue<>(sendQueue, periodicScheduler, interval, timeUnit);
+    }
 
     /**
      * This starts up a listener which will listen to items on the

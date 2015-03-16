@@ -18,6 +18,11 @@
 
 package io.advantageous.qbit.service.impl;
 
+import io.advantageous.boon.Boon;
+import io.advantageous.boon.Lists;
+import io.advantageous.boon.Str;
+import io.advantageous.boon.core.Conversions;
+import io.advantageous.boon.core.Sys;
 import io.advantageous.qbit.Factory;
 import io.advantageous.qbit.QBit;
 import io.advantageous.qbit.message.MethodCall;
@@ -26,20 +31,18 @@ import io.advantageous.qbit.queue.ReceiveQueue;
 import io.advantageous.qbit.service.Callback;
 import io.advantageous.qbit.service.ServiceBundle;
 import io.advantageous.qbit.service.ServiceBundleBuilder;
+import io.advantageous.qbit.service.ServiceQueue;
 import io.advantageous.qbit.util.MultiMap;
-import org.boon.Boon;
-import org.boon.Lists;
-import org.boon.Str;
-import org.boon.core.Conversions;
-import org.boon.core.Sys;
 import org.junit.Before;
 import org.junit.Test;
 
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
-import static org.boon.Boon.puts;
-import static org.boon.Exceptions.die;
+import static io.advantageous.boon.Boon.puts;
+import static io.advantageous.boon.Exceptions.die;
+import static io.advantageous.qbit.service.ServiceBuilder.serviceBuilder;
 
 public class ServiceBundleImplTest {
 
@@ -92,6 +95,25 @@ public class ServiceBundleImplTest {
         ok = callCount == 1 || die();
     }
 
+
+    @Test
+    public void testWithService() {
+
+        final ServiceQueue serviceQueue = serviceBuilder().setServiceObject(new MockService()).build();
+        //serviceBundle.addService(new MockService());
+        serviceBundle.addServiceQueue("mockService", serviceQueue);
+        proxy = serviceBundle.createLocalProxy(MockServiceInterface.class, "mockService");
+        serviceBundle.startReturnHandlerProcessor();
+
+        proxy.method1();
+        proxy.clientProxyFlush();
+
+
+        Sys.sleep(1000);
+
+        ok = callCount == 1 || die();
+    }
+
     @Test
     public void testCallback() throws Exception {
 
@@ -114,6 +136,35 @@ public class ServiceBundleImplTest {
         ok = returnValue.get() == 1 || die(returnValue.get());
     }
 
+
+    @Test
+    public void testCallbackWithCallBackInService() throws Exception {
+
+
+        serviceBundle.addService(new MockService());
+        proxy = serviceBundle.createLocalProxy(MockServiceInterface.class, "mockService");
+        serviceBundle.startReturnHandlerProcessor();
+
+        AtomicReference<String> str = new AtomicReference<>();
+
+        AtomicInteger returnValue = new AtomicInteger();
+        proxy.methodWithCallBack(new Callback<String>() {
+            @Override
+            public void accept(String s) {
+                puts("###############", s);
+                str.set(s);
+            }
+        });
+        proxy.clientProxyFlush();
+
+
+        Sys.sleep(1000);
+
+        ok = callCount == 1 || die();
+
+        ok = str.get().equals("hello") || die();
+    }
+
     @Test
     public void testAddress() throws Exception {
 
@@ -124,7 +175,7 @@ public class ServiceBundleImplTest {
     @Test
     public void testAddService() throws Exception {
 
-        serviceBundle.addService("/adder", adderService);
+        serviceBundle.addServiceObject("/adder", adderService);
         final List<String> endPoints = serviceBundle.endPoints();
         puts(endPoints);
         endPoints.contains("/foo/adder");
@@ -134,7 +185,7 @@ public class ServiceBundleImplTest {
     public void testResponses() throws Exception {
 
         call = factory.createMethodCallByAddress("/foo/adder/add", "", Lists.list(1, 2), params);
-        serviceBundle.addService("/adder", adderService);
+        serviceBundle.addServiceObject("/adder", adderService);
 
         serviceBundle.call(call);
 
@@ -172,6 +223,9 @@ public class ServiceBundleImplTest {
 
         void clientProxyFlush();
 
+        void methodWithCallBack(Callback<String> callback);
+
+
     }
 
     public static class AdderService {
@@ -188,6 +242,11 @@ public class ServiceBundleImplTest {
     class MockService {
         public void method1() {
             callCount++;
+        }
+
+        public void methodWithCallBack(Callback<String> callback) {
+            callCount++;
+            callback.accept("hello");
         }
 
         public int method2() {

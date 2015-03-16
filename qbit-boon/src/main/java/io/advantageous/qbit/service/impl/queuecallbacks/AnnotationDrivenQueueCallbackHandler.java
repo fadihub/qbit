@@ -18,11 +18,11 @@
 
 package io.advantageous.qbit.service.impl.queuecallbacks;
 
+import io.advantageous.boon.core.reflection.AnnotationData;
+import io.advantageous.boon.core.reflection.ClassMeta;
+import io.advantageous.boon.core.reflection.MethodAccess;
 import io.advantageous.qbit.annotation.QueueCallbackType;
 import io.advantageous.qbit.queue.QueueCallBackHandler;
-import org.boon.core.reflection.AnnotationData;
-import org.boon.core.reflection.ClassMeta;
-import org.boon.core.reflection.MethodAccess;
 
 /**
  * @author rhightower on 2/10/15.
@@ -37,10 +37,10 @@ public class AnnotationDrivenQueueCallbackHandler implements QueueCallBackHandle
     private MethodAccess queueLimit;
     private MethodAccess queueShutdown;
     private MethodAccess queueIdle;
-    private ClassMeta<Class<?>> classMeta;
 
     public AnnotationDrivenQueueCallbackHandler(Object service) {
 
+        ClassMeta<Class<?>> classMeta;
 
         classMeta = (ClassMeta<Class<?>>) ClassMeta.classMeta(service.getClass());
 
@@ -59,51 +59,55 @@ public class AnnotationDrivenQueueCallbackHandler implements QueueCallBackHandle
 
     private void processAnnotationForMethod(final MethodAccess methodAccess) {
         final AnnotationData annotation = methodAccess.annotation(QUEUE_CALLBACK_ANNOTATION_NAME);
-        final String value = annotation.getValues().get("value").toString();
-        final QueueCallbackType queueCallbackType = QueueCallbackType.valueOf(value);
+        final Object[] values = (Object[]) annotation.getValues().get("value");
 
-        switch (queueCallbackType) {
-            case IDLE:
-                queueIdle = methodAccess;
-                break;
-            case SHUTDOWN:
-                queueShutdown = methodAccess;
-                break;
-            case LIMIT:
-                queueLimit = methodAccess;
-                break;
-            case INIT:
-                queueLimit = methodAccess;
-                break;
-            case START_BATCH:
-                queueStartBatch = methodAccess;
-                break;
-            case EMPTY:
-                queueEmpty = methodAccess;
-                break;
-            case DYNAMIC:
-                switch (methodAccess.name()) {
-                    case "queueIdle":
-                        queueIdle = methodAccess;
-                        break;
-                    case "queueShutdown":
-                        queueShutdown = methodAccess;
-                        break;
-                    case "queueLimit":
-                        queueLimit = methodAccess;
-                        break;
-                    case "queueInit":
-                        queueInit = methodAccess;
-                        break;
-                    case "queueStartBatch":
-                        queueIdle = methodAccess;
-                        break;
-                    case "queueEmpty":
-                        queueEmpty = methodAccess;
-                        break;
-                }
-                break;
 
+        for (Object value : values) {
+            final QueueCallbackType queueCallbackType = QueueCallbackType.valueOf(value.toString());
+
+            switch (queueCallbackType) {
+                case IDLE:
+                    queueIdle = methodAccess;
+                    break;
+                case SHUTDOWN:
+                    queueShutdown = methodAccess;
+                    break;
+                case LIMIT:
+                    queueLimit = methodAccess;
+                    break;
+                case INIT:
+                    queueLimit = methodAccess;
+                    break;
+                case START_BATCH:
+                    queueStartBatch = methodAccess;
+                    break;
+                case EMPTY:
+                    queueEmpty = methodAccess;
+                    break;
+                case DYNAMIC:
+                    switch (methodAccess.name()) {
+                        case "queueIdle":
+                            queueIdle = methodAccess;
+                            break;
+                        case "queueShutdown":
+                            queueShutdown = methodAccess;
+                            break;
+                        case "queueLimit":
+                            queueLimit = methodAccess;
+                            break;
+                        case "queueInit":
+                            queueInit = methodAccess;
+                            break;
+                        case "queueStartBatch":
+                            queueIdle = methodAccess;
+                            break;
+                        case "queueEmpty":
+                            queueEmpty = methodAccess;
+                            break;
+                    }
+                    break;
+
+            }
         }
 
     }

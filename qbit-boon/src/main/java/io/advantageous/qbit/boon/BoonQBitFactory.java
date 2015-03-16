@@ -22,9 +22,12 @@ import io.advantageous.qbit.BoonJsonMapper;
 import io.advantageous.qbit.Factory;
 import io.advantageous.qbit.client.Client;
 import io.advantageous.qbit.client.ServiceProxyFactory;
+import io.advantageous.qbit.concurrent.PeriodicScheduler;
 import io.advantageous.qbit.events.EventBusProxyCreator;
+import io.advantageous.qbit.events.spi.EventConnector;
 import io.advantageous.qbit.events.EventManager;
 import io.advantageous.qbit.events.impl.BoonEventBusProxyCreator;
+import io.advantageous.qbit.http.HttpTransport;
 import io.advantageous.qbit.http.client.HttpClient;
 import io.advantageous.qbit.http.config.HttpServerOptions;
 import io.advantageous.qbit.http.server.HttpServer;
@@ -40,12 +43,12 @@ import io.advantageous.qbit.sender.SenderEndPoint;
 import io.advantageous.qbit.server.ServiceServer;
 import io.advantageous.qbit.server.ServiceServerImpl;
 import io.advantageous.qbit.service.BeforeMethodCall;
-import io.advantageous.qbit.service.Service;
+import io.advantageous.qbit.service.ServiceQueue;
 import io.advantageous.qbit.service.ServiceBundle;
 import io.advantageous.qbit.service.ServiceMethodHandler;
 import io.advantageous.qbit.service.impl.BoonServiceMethodCallHandler;
 import io.advantageous.qbit.service.impl.ServiceBundleImpl;
-import io.advantageous.qbit.service.impl.ServiceImpl;
+import io.advantageous.qbit.service.impl.ServiceQueueImpl;
 import io.advantageous.qbit.spi.*;
 import io.advantageous.qbit.system.QBitSystemManager;
 import io.advantageous.qbit.transforms.Transformer;
@@ -55,6 +58,8 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static io.advantageous.qbit.service.ServiceBuilder.serviceBuilder;
@@ -70,7 +75,7 @@ import static io.advantageous.qbit.service.ServiceBuilder.serviceBuilder;
 public class BoonQBitFactory implements Factory {
 
     private final Logger logger = LoggerFactory.getLogger(BoonQBitFactory.class);
-    private AtomicReference<Service> systemEventManager = new AtomicReference<>();
+    private AtomicReference<ServiceQueue> systemEventManager = new AtomicReference<>();
     private ThreadLocal<EventManager> eventManagerThreadLocal = new ThreadLocal<>();
     private ProtocolParser defaultProtocol = new BoonProtocolParser();
     private ServiceProxyFactory serviceProxyFactory = new BoonServiceProxyFactory(this);
@@ -85,6 +90,50 @@ public class BoonQBitFactory implements Factory {
         }
     };
 
+
+
+    private ScheduledExecutorService scheduledExecutorService = Executors.newScheduledThreadPool(4,
+            r -> {
+                Thread thread = new Thread(r);
+                thread.setDaemon(true);
+                thread.setName("PeriodicTasks");
+                return thread;
+            });
+
+    public PeriodicScheduler periodicScheduler() {
+
+        return (runnable, interval, timeUnit) -> scheduledExecutorService.scheduleAtFixedRate(runnable, interval, interval, timeUnit);
+    }
+
+    public PeriodicScheduler createPeriodicScheduler(int poolSize) {
+
+
+        final ScheduledExecutorService scheduledExecutorService = Executors.newScheduledThreadPool(poolSize,
+                r -> {
+                    Thread thread = new Thread(r);
+                    thread.setDaemon(true);
+                    thread.setName("PeriodicTasks");
+                    return thread;
+                });
+
+        return new PeriodicScheduler() {
+            @Override
+            public ScheduledFuture repeat(Runnable runnable, int interval, TimeUnit timeUnit) {
+                return scheduledExecutorService.scheduleAtFixedRate(runnable, interval, interval, timeUnit);
+            }
+
+            @Override
+            public void start() {
+            }
+
+            @Override
+            public void stop() {
+                scheduledExecutorService.shutdown();
+            }
+        };
+
+    }
+
     @Override
     public EventManager systemEventManager() {
 
@@ -95,10 +144,10 @@ public class BoonQBitFactory implements Factory {
 
         EventManager proxy;
         if ( systemEventManager.get() == null ) {
-            final Service service = serviceBuilder().setInvokeDynamic(false).setServiceObject(createEventManager()).build().start();
+            final ServiceQueue serviceQueue = serviceBuilder().setInvokeDynamic(false).setServiceObject(createEventManager()).build().start();
 
-            systemEventManager.set(service);
-            proxy = service.createProxy(EventManager.class);
+            systemEventManager.set(serviceQueue);
+            proxy = serviceQueue.createProxy(EventManager.class);
         } else {
             proxy = systemEventManager.get().createProxy(EventManager.class);
         }
@@ -109,9 +158,9 @@ public class BoonQBitFactory implements Factory {
 
     @Override
     public void shutdownSystemEventBus() {
-        final Service service = systemEventManager.get();
-        if ( service != null ) {
-            service.stop();
+        final ServiceQueue serviceQueue = systemEventManager.get();
+        if ( serviceQueue != null ) {
+            serviceQueue.stop();
         }
     }
 
@@ -123,10 +172,6 @@ public class BoonQBitFactory implements Factory {
         eventManagerThreadLocal.set(null);
     }
 
-    @Override
-    public EventManager createEventManager() {
-        return FactorySPI.getEventManagerFactory().createEventManager();
-    }
 
     @Override
     public MethodCall<Object> createMethodCallToBeEncodedAndSent(long id, String address, String returnAddress, String objectName, String methodName, long timestamp, Object body, MultiMap<String, String> params) {
@@ -142,8 +187,22 @@ public class BoonQBitFactory implements Factory {
 
 
     @Override
-    public <T> T createRemoteProxyWithReturnAddress(Class<T> serviceInterface, String address, String serviceName, String returnAddressArg, Sender<String> sender, BeforeMethodCall beforeMethodCall, int requestBatchSize) {
-        return remoteServiceProxyFactory.createProxyWithReturnAddress(serviceInterface, serviceName, returnAddressArg, new SenderEndPoint(this.createEncoder(), address, sender, beforeMethodCall, requestBatchSize));
+    public <T> T createRemoteProxyWithReturnAddress(final Class<T> serviceInterface,
+                                                    final String address,
+                                                    final String serviceName,
+                                                    final String host,
+                                                    final int port,
+                                                    final AtomicBoolean connected,
+                                                    final String returnAddressArg,
+                                                    final Sender<String> sender,
+                                                    final BeforeMethodCall beforeMethodCall,
+                                                    final int requestBatchSize) {
+        return remoteServiceProxyFactory.createProxyWithReturnAddress(
+                    serviceInterface,
+                    serviceName,
+                    host, port, connected,
+                returnAddressArg, new SenderEndPoint(this.createEncoder(), address, sender, beforeMethodCall,
+                        requestBatchSize));
     }
 
 
@@ -173,12 +232,28 @@ public class BoonQBitFactory implements Factory {
     }
 
     @Override
+    public EventManager createEventManager() {
+
+        return FactorySPI.getEventManagerFactory().createEventManager();
+    }
+
+
+    @Override
+    public EventManager createEventManagerWithConnector(final EventConnector eventConnector) {
+        return FactorySPI.getEventManagerFactory().createEventManagerWithConnector( eventConnector );
+    }
+
+    @Override
     public HttpClient createHttpClient(String host, int port, int requestBatchSize, int timeOutInMilliseconds, int poolSize, boolean autoFlush, int flushRate, boolean keepAlive, boolean pipeline) {
         return FactorySPI.getHttpClientFactory().create(host, port, requestBatchSize, timeOutInMilliseconds, poolSize, autoFlush, flushRate, keepAlive, pipeline);
     }
 
     @Override
-    public ServiceServer createServiceServer(final HttpServer httpServer, final ProtocolEncoder encoder, final ProtocolParser protocolParser, final ServiceBundle serviceBundle, final JsonMapper jsonMapper, final int timeOutInSeconds, final int numberOfOutstandingRequests, final int batchSize, final int flushInterval, final QBitSystemManager systemManager) {
+    public ServiceServer createServiceServer(final HttpTransport httpServer, final ProtocolEncoder encoder,
+                                             final ProtocolParser protocolParser, final ServiceBundle serviceBundle,
+                                             final JsonMapper jsonMapper, final int timeOutInSeconds,
+                                             final int numberOfOutstandingRequests, final int batchSize,
+                                             final int flushInterval, final QBitSystemManager systemManager) {
         return new ServiceServerImpl(httpServer, encoder, protocolParser, serviceBundle, jsonMapper, timeOutInSeconds, numberOfOutstandingRequests, batchSize, flushInterval, systemManager);
     }
 
@@ -245,24 +320,37 @@ public class BoonQBitFactory implements Factory {
 
 
     @Override
-    public Service createService(final String rootAddress, final String serviceAddress, final Object service, final Queue<Response<Object>> responseQueue, final QBitSystemManager systemManager) {
+    public ServiceQueue createService(final String rootAddress, final String serviceAddress, final Object service, final Queue<Response<Object>> responseQueue, final QBitSystemManager systemManager) {
 
 
-        return new ServiceImpl(rootAddress, serviceAddress, service, null, new BoonServiceMethodCallHandler(true), responseQueue, true, false, systemManager);
+        return new ServiceQueueImpl(rootAddress, serviceAddress, service, null, null, new BoonServiceMethodCallHandler(true), responseQueue, true, false, systemManager);
 
     }
 
     @Override
-    public Service createService(String rootAddress, String serviceAddress, Object object, Queue<Response<Object>> responseQueue, final QueueBuilder queueBuilder, boolean async, boolean invokeDynamic, boolean handleCallbacks, final QBitSystemManager systemManager) {
+    public ServiceQueue createService(final String rootAddress,
+                                      final String serviceAddress,
+                                      final Object object,
+                                      final Queue<Response<Object>> responseQueue,
+                                      final QueueBuilder requestQueueBuilder,
+                                      final QueueBuilder responseQueueBuilder,
+                                      final boolean async,
+                                      final boolean invokeDynamic,
+                                      final boolean handleCallbacks,
+                                      final QBitSystemManager systemManager) {
 
-        return new ServiceImpl(rootAddress, serviceAddress, object, queueBuilder, new BoonServiceMethodCallHandler(invokeDynamic), responseQueue, async, handleCallbacks, systemManager);
+        return new ServiceQueueImpl(rootAddress, serviceAddress, object, requestQueueBuilder, responseQueueBuilder, new BoonServiceMethodCallHandler(invokeDynamic), responseQueue, async, handleCallbacks, systemManager);
 
     }
 
 
     @Override
-    public ServiceBundle createServiceBundle(String address, QueueBuilder queueBuilder, final Factory factory, final boolean asyncCalls, final BeforeMethodCall beforeMethodCall, final BeforeMethodCall beforeMethodCallAfterTransform, final Transformer<Request, Object> argTransformer, boolean invokeDynamic, final QBitSystemManager systemManager) {
-        return new ServiceBundleImpl(address, queueBuilder, factory, asyncCalls, beforeMethodCall, beforeMethodCallAfterTransform, argTransformer, invokeDynamic, systemManager);
+    public ServiceBundle createServiceBundle(final String address,
+                                             final QueueBuilder requestQueueBuilder,
+                                             final QueueBuilder responseQueueBuilder,
+                                             final Factory factory, final boolean asyncCalls, final BeforeMethodCall beforeMethodCall, final BeforeMethodCall beforeMethodCallAfterTransform, final Transformer<Request, Object> argTransformer, boolean invokeDynamic, final QBitSystemManager systemManager) {
+        return new ServiceBundleImpl(address, requestQueueBuilder, responseQueueBuilder,
+                factory, asyncCalls, beforeMethodCall, beforeMethodCallAfterTransform, argTransformer, invokeDynamic, systemManager);
     }
 
 

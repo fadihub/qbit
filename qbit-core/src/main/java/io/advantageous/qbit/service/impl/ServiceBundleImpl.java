@@ -29,24 +29,22 @@ import io.advantageous.qbit.queue.Queue;
 import io.advantageous.qbit.queue.QueueBuilder;
 import io.advantageous.qbit.queue.ReceiveQueueListener;
 import io.advantageous.qbit.queue.SendQueue;
-import io.advantageous.qbit.service.BeforeMethodCall;
-import io.advantageous.qbit.service.Service;
-import io.advantageous.qbit.service.ServiceBundle;
-import io.advantageous.qbit.service.ServiceMethodNotFoundException;
+import io.advantageous.qbit.service.*;
 import io.advantageous.qbit.system.QBitSystemManager;
 import io.advantageous.qbit.transforms.Transformer;
 import io.advantageous.qbit.util.ConcurrentHashSet;
 import io.advantageous.qbit.util.Timer;
-import org.boon.Str;
-import org.boon.core.Sys;
-import org.boon.core.reflection.BeanUtils;
+import io.advantageous.boon.Str;
+import io.advantageous.boon.core.Sys;
+import io.advantageous.boon.core.reflection.BeanUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 
-import static org.boon.Boon.*;
+import static io.advantageous.boon.Boon.*;
 
 /**
  * Manages a collection of services.
@@ -64,15 +62,17 @@ public class ServiceBundleImpl implements ServiceBundle {
     private final QBitSystemManager systemManager;
     private final CallbackManager callbackManager = new CallbackManager();
     /**
-     * Keep track of services to send queue mappings.
-     */
-    private final Map<String, SendQueue<MethodCall<Object>>> serviceMapping = new ConcurrentHashMap<>();
+     * Keep track of servicesToStop to forwardEvent queue mappings.
+     *///SendQueue<MethodCall<Object>>
+    private final Map<String, Consumer<MethodCall<Object>>> serviceMapping = new ConcurrentHashMap<>();
     /**
-     * Keep a list of current services that we are routing to.
+     * Keep a list of current servicesToStop that we are routing to.
      */
-    private final Set<Service> services = new ConcurrentHashSet<>(10);
+    private final Set<Stoppable> servicesToStop = new ConcurrentHashSet<>(10);
+
+    private final Set<ServiceFlushable> servicesToFlush = new ConcurrentHashSet<>(10);
     /**
-     * Keep a list of current send queue.
+     * Keep a list of current forwardEvent queue.
      */
     private final Set<SendQueue<MethodCall<Object>>> sendQueues = new ConcurrentHashSet<>(10);
     /**
@@ -84,11 +84,11 @@ public class ServiceBundleImpl implements ServiceBundle {
      */
     private final SendQueue<MethodCall<Object>> methodSendQueue;
     /**
-     * Response queue for returning responses from services that we invoked.
+     * Response queue for returning responses from servicesToStop that we invoked.
      */
     private final Queue<Response<Object>> responseQueue;
     /**
-     * Base URI for services that this bundle is managing.
+     * Base URI for servicesToStop that this bundle is managing.
      */
     private final String address;
     /**
@@ -134,13 +134,12 @@ public class ServiceBundleImpl implements ServiceBundle {
     );
     /*
      */
-    private final QueueBuilder queueBuilder;
+    private final QueueBuilder requestQueueBuilder;
+    private final QueueBuilder responseQueueBuilder;
 
-    /**
-     * @param address root address of client bundle
-     * @param factory the qbit factory where we can createWithWorkers responses, methods, etc.
-     */
-    public ServiceBundleImpl(String address, QueueBuilder queueBuilder,
+    public ServiceBundleImpl(String address,
+                             final QueueBuilder requestQueueBuilder,
+                             final QueueBuilder responseQueueBuilder,
                              final Factory factory, final boolean asyncCalls,
                              final BeforeMethodCall beforeMethodCall,
                              final BeforeMethodCall beforeMethodCallAfterTransform,
@@ -158,14 +157,15 @@ public class ServiceBundleImpl implements ServiceBundle {
         this.address = address;
         this.factory = factory;
         this.asyncCalls = asyncCalls;
-        this.queueBuilder = queueBuilder;
-        this.methodQueue = queueBuilder.setName("Call Queue " + address).build();
-        this.responseQueue = queueBuilder.setName("Response Queue " + address).build();
+        this.requestQueueBuilder = requestQueueBuilder;
+        this.responseQueueBuilder = responseQueueBuilder;
+        this.methodQueue = requestQueueBuilder.setName("Call Queue " + address).build();
+        this.responseQueue = responseQueueBuilder.setName("Response Queue " + address).build();
         this.methodSendQueue = methodQueue.sendQueue();
     }
 
     /**
-     * Base URI for all of the services in this bundle.
+     * Base URI for all of the servicesToStop in this bundle.
      *
      * @return base URI.
      */
@@ -182,9 +182,9 @@ public class ServiceBundleImpl implements ServiceBundle {
     @Override
     public void addService(Object object) {
         if (debug) {
-            puts("ServiceBundleImpl::addService(object)- service added");
+            puts("ServiceBundleImpl::addServiceObject(object)- service added");
         }
-        addService(null, object);
+        addServiceObject(null, object);
     }
 
     /**
@@ -194,44 +194,111 @@ public class ServiceBundleImpl implements ServiceBundle {
      * @param serviceObject  the client we want to add.
      */
     @Override
-    public void addService(String serviceAddress, Object serviceObject) {
+    public ServiceBundle addServiceObject(final String serviceAddress, final Object serviceObject) {
+
+        if ( serviceObject instanceof Consumer ) {
+
+            addServiceConsumer(serviceAddress, (Consumer<MethodCall<Object>>) serviceObject);
+            return this;
+        }
+
 
         if (debug) {
-            puts("ServiceBundleImpl::addService(object)- service added");
+            puts("ServiceBundleImpl::addServiceObject(object)- service added");
             logger.debug(ServiceBundleImpl.class.getName() + " serviceAddress " + serviceAddress + " service object " + serviceObject);
         }
 
+        if (serviceObject instanceof ServiceQueue) {
+            addServiceService(serviceAddress, (ServiceQueue) serviceObject);
+
+            return this;
+        }
 
         /** Turn this client object into a client with queues. */
-        final Service service = factory.createService(address, serviceAddress,
-                serviceObject, responseQueue, BeanUtils.copy(this.queueBuilder), this.asyncCalls, this.invokeDynamic, false, systemManager);
+        final ServiceQueue serviceQueue = factory.createService(address, serviceAddress,
+                serviceObject, responseQueue,
+                BeanUtils.copy(this.requestQueueBuilder),
+                this.responseQueueBuilder,
+                this.asyncCalls,
+                this.invokeDynamic,
+                false, systemManager);
 
-        service.start(false);
+
+        addServiceService(serviceAddress, serviceQueue);
+        return this;
+    }
+
+    public ServiceBundle addServiceConsumer(final String serviceAddress,
+                                    final Consumer<MethodCall<Object>> methodCallConsumer) {
+
+        String address = serviceAddress;
+
+        if (address!=null && !address.isEmpty()) {
+            serviceMapping.put(address, methodCallConsumer);
+            serviceMapping.put(address.toLowerCase(), methodCallConsumer);
+
+            if (methodCallConsumer instanceof ServiceFlushable) {
+                this.servicesToFlush.add((ServiceFlushable) methodCallConsumer);
+            }
+
+            if (methodCallConsumer instanceof Stoppable) {
+                this.servicesToStop.add((Stoppable) methodCallConsumer);
+            }
+        } else {
+            throw new IllegalStateException("Service consumer must have an address");//TODO lookup name like you do in BoonMethodCallHandler
+        }
+        return this;
+
+    }
+
+    public void addServiceService(final String serviceAddress, final ServiceQueue serviceQueue) {
 
 
-        /** add to our list of services. */
-        services.add(service);
+        addServiceService(null, serviceAddress, serviceQueue);
+    }
 
-        /* Create an send queue for this client. which we access from a single thread. */
-        final SendQueue<MethodCall<Object>> requests = service.requests();
+
+    public void addServiceService(final String objectName, final String serviceAddress, final ServiceQueue serviceQueue) {
+
+        serviceQueue.start(false); //Don't like this.. REFACTOR
+
+
+        /** add to our list of servicesToStop. */
+        servicesToStop.add(serviceQueue);
+        servicesToFlush.add(serviceQueue);
+
+        /* Create an forwardEvent queue for this client. which we access from a single thread. */
+        final SendQueue<MethodCall<Object>> requests = serviceQueue.requests();
+
+        Consumer<MethodCall<Object>> dispatch = new Consumer<MethodCall<Object>>() {
+            @Override
+            public void accept(MethodCall<Object> objectMethodCall) {
+                requests.send(objectMethodCall);
+            }
+        };
+
 
         /** Add the client given the address if we have an address. */
         if (serviceAddress != null && !serviceAddress.isEmpty()) {
-            serviceMapping.put(serviceAddress, requests);
+            serviceMapping.put(serviceAddress, dispatch);
         }
 
-        /** Put the client incoming requests in our client name, request queue mapping. */
-        serviceMapping.put(service.name(), requests);
-        serviceMapping.put(service.address(), requests);
+        if (objectName!=null) {
+            /** Put the client incoming requests in our client name, request queue mapping. */
+            serviceMapping.put(objectName, dispatch);
+        }
+
+        serviceMapping.put(serviceQueue.name(), dispatch);
+        serviceMapping.put(serviceQueue.address(), dispatch);
 
         /** Add the request queue to our set of request queues. */
         sendQueues.add(requests);
 
         /** Generate a list of end point addresses based on the client bundle root address. */
-        final Collection<String> addresses = service.addresses(this.address);
+        final Collection<String> addresses = serviceQueue.addresses(this.address);
 
         if (debug) {
-            puts("ServiceBundleImpl::addService(object)- addresses: ", addresses);
+            puts("ServiceBundleImpl::addServiceObject(object)- addresses: ", addresses);
 
             logger.debug(ServiceBundleImpl.class.getName() + " addresses: " + addresses);
         }
@@ -239,13 +306,12 @@ public class ServiceBundleImpl implements ServiceBundle {
         /** Add mappings to all addresses for this client to our serviceMapping. */
         for (String addr : addresses) {
             addressesByDescending.add(addr);
-            SendQueue<MethodCall<Object>> methodCallSendQueue = serviceMapping.get(service.name());
-            serviceMapping.put(addr, methodCallSendQueue);
+            serviceMapping.put(addr, dispatch);
         }
     }
 
     /**
-     * Returns a receive queue for all services managed by this bundle.
+     * Returns a receive queue for all servicesToStop managed by this bundle.
      *
      * @return responses queue
      */
@@ -335,8 +401,9 @@ public class ServiceBundleImpl implements ServiceBundle {
                             "Flag from before call handling does not want to continue"));
                 }
             } else {
-                SendQueue<MethodCall<Object>> sendQueue = getMethodCallSendQueue(methodCall);
-                sendQueue.send(methodCall);
+                final Consumer<MethodCall<Object>> methodDispatcher = getMethodDispatcher(methodCall);
+                methodDispatcher.accept(methodCall);
+
             }
 
         } catch (Exception ex) {
@@ -352,8 +419,11 @@ public class ServiceBundleImpl implements ServiceBundle {
         return methodCall;
     }
 
-    private SendQueue<MethodCall<Object>> getMethodCallSendQueue(MethodCall<Object> methodCall) {
-        SendQueue<MethodCall<Object>> sendQueue = null;
+
+
+
+    private Consumer<MethodCall<Object>> getMethodDispatcher(MethodCall<Object> methodCall) {
+        Consumer<MethodCall<Object>> methodCallConsumer = null;
 
         boolean hasAddress = !Str.isEmpty(methodCall.address());
 
@@ -362,14 +432,14 @@ public class ServiceBundleImpl implements ServiceBundle {
         boolean hasObjectName = !Str.isEmpty(methodCall.objectName());
 
         if (hasMethodName && hasObjectName) {
-            sendQueue = serviceMapping.get(methodCall.objectName());
+            methodCallConsumer = serviceMapping.get(methodCall.objectName());
         }
 
-        if (hasAddress && sendQueue == null) {
-            sendQueue = handleByAddressCall(methodCall);
+        if (hasAddress && methodCallConsumer == null) {
+            methodCallConsumer = getMethodDispatchByAddress(methodCall);
         }
 
-        if (sendQueue == null) {
+        if (methodCallConsumer == null) {
             logger.error("No service at method address " + methodCall.address()
                     + " method name " + methodCall.name() + " object name " + methodCall.objectName() + "\n SERVICES" + serviceMapping.keySet() + "\n");
 
@@ -382,43 +452,41 @@ public class ServiceBundleImpl implements ServiceBundle {
             throw new ServiceMethodNotFoundException("there is no object at this address: " + methodCall.address()
                     + "\n method name=" + methodCall.name() + "\n objectName=" + methodCall.objectName(), methodCall.address());
         }
-        return sendQueue;
+        return methodCallConsumer;
     }
 
-    /**
-     * Attempts to call a client by its address.
-     *
-     * @param methodCall method call to client
-     * @return send queue for the client we are trying to call.
-     */
-    private SendQueue<MethodCall<Object>> handleByAddressCall(final MethodCall<Object> methodCall) {
-        SendQueue<MethodCall<Object>> sendQueue;
-        final String callAddress = methodCall.address();
-        sendQueue = serviceMapping.get(callAddress);
 
-        if (sendQueue == null) {
+
+
+
+    private Consumer<MethodCall<Object>> getMethodDispatchByAddress(final MethodCall<Object> methodCall) {
+        Consumer<MethodCall<Object>> methodConsumerByAddress;
+        final String callAddress = methodCall.address();
+        methodConsumerByAddress = serviceMapping.get(callAddress);
+
+        if (methodConsumerByAddress == null) {
 
             String addr;
 
             /* Check the ones we are using to reduce search time. */
             addr = seenAddressesDescending.higher(callAddress);
             if (addr != null && callAddress.startsWith(addr)) {
-                sendQueue = serviceMapping.get(addr);
-                return sendQueue;
+                methodConsumerByAddress = serviceMapping.get(addr);
+                return methodConsumerByAddress;
             }
 
             /* if it was not in one of the ones we are using check the rest. */
             addr = addressesByDescending.higher(callAddress);
 
             if (addr != null && callAddress.startsWith(addr)) {
-                sendQueue = serviceMapping.get(addr);
+                methodConsumerByAddress = serviceMapping.get(addr);
 
-                if (sendQueue != null) {
+                if (methodConsumerByAddress != null) {
                     seenAddressesDescending.add(addr);
                 }
             }
         }
-        return sendQueue;
+        return methodConsumerByAddress;
     }
 
     /**
@@ -474,7 +542,7 @@ public class ServiceBundleImpl implements ServiceBundle {
             logger.debug(ServiceBundleImpl.class.getName(), "::stop()");
         }
         methodQueue.stop();
-        for (Service service : services) {
+        for (Stoppable service : servicesToStop) {
             service.stop();
         }
 
@@ -497,7 +565,7 @@ public class ServiceBundleImpl implements ServiceBundle {
     }
 
     /**
-     * Handles responses coming back from services.
+     * Handles responses coming back from servicesToStop.
      */
     public void startReturnHandlerProcessor() {
         callbackManager.startReturnHandlerProcessor(responseQueue);
@@ -519,7 +587,7 @@ public class ServiceBundleImpl implements ServiceBundle {
              */
             @Override
             public void receive(MethodCall<Object> item) {
-                doCall(item); //Do call calls send but does not flush. Only when the queue is empty do we flush.
+                doCall(item); //Do call calls forwardEvent but does not flush. Only when the queue is empty do we flush.
             }
 
             /**
@@ -543,10 +611,22 @@ public class ServiceBundleImpl implements ServiceBundle {
     public void flush() {
 
         flushSends();
-        Sys.sleep(100);
-        for (Service service : services) {
+        for (ServiceFlushable service : servicesToFlush) {
             service.flush();
         }
 
     }
+
+
+
+    public ServiceBundle addServiceQueue(String objectName, ServiceQueue serviceQueue) {
+
+
+        final String objectAddress = objectName.startsWith("/") ? this.address() + objectName :
+                Str.add(this.address(), "/", objectName);
+
+        addServiceService(objectName, objectAddress, serviceQueue);
+        return this;
+    }
+
 }

@@ -18,6 +18,10 @@
 
 package io.advantageous.qbit.service.impl;
 
+import io.advantageous.boon.Lists;
+import io.advantageous.boon.Pair;
+import io.advantageous.boon.Str;
+import io.advantageous.boon.core.reflection.MethodAccess;
 import io.advantageous.qbit.Factory;
 import io.advantageous.qbit.QBit;
 import io.advantageous.qbit.annotation.RequestMapping;
@@ -26,17 +30,14 @@ import io.advantageous.qbit.message.Response;
 import io.advantageous.qbit.spi.RegisterBoonWithQBit;
 import io.advantageous.qbit.util.MultiMap;
 import io.advantageous.qbit.util.MultiMapImpl;
-import org.boon.Lists;
-import org.boon.Pair;
-import org.boon.Str;
-import org.boon.core.reflection.MethodAccess;
 import org.junit.Test;
 
 import java.util.Collection;
 import java.util.Map;
 
-import static org.boon.Boon.puts;
-import static org.boon.Exceptions.die;
+import static io.advantageous.boon.Boon.puts;
+import static io.advantageous.boon.Exceptions.die;
+
 
 /**
  * Created by Richard on 9/26/14.
@@ -44,18 +45,13 @@ import static org.boon.Exceptions.die;
 public class BoonServiceMethodCallHandlerTest {
 
 
-    static {
-        RegisterBoonWithQBit.registerBoonWithQBit();
-
-    }
-
     boolean methodCalled;
     boolean ok;
 
     @Test
     public void test() {
         BoonServiceMethodCallHandler impl = new BoonServiceMethodCallHandler(true);
-        impl.init(new Foo(), "", "");
+        impl.init(new Foo(), "", "", null);
 
         final String address = impl.address();
         Str.equalsOrDie("/boo/baz", address);
@@ -77,7 +73,7 @@ public class BoonServiceMethodCallHandlerTest {
         methodCalled = false;
         impl.receiveMethodCall(factory.createMethodCallByAddress("/boo/baz/baaah/pluck", null, null, null));
 
-        ok = methodCalled == true || die();
+        ok = methodCalled || die();
 
 
     }
@@ -86,7 +82,7 @@ public class BoonServiceMethodCallHandlerTest {
     public void testTwoBasicArgsNotDynamic() {
 
         BoonServiceMethodCallHandler impl = new BoonServiceMethodCallHandler(false);
-        impl.init(new Foo(), "", "");
+        impl.init(new Foo(), "", "", null);
 
         final Factory factory = QBit.factory();
 
@@ -103,7 +99,7 @@ public class BoonServiceMethodCallHandlerTest {
     public void testTwoBasicArgs() {
 
         BoonServiceMethodCallHandler impl = new BoonServiceMethodCallHandler(true);
-        impl.init(new Foo(), "", "");
+        impl.init(new Foo(), "", "", null);
 
         final Factory factory = QBit.factory();
 
@@ -120,7 +116,7 @@ public class BoonServiceMethodCallHandlerTest {
     public void testTwoBasicArgsInURIParams() {
 
         BoonServiceMethodCallHandler impl = new BoonServiceMethodCallHandler(true);
-        impl.init(new Foo(), "", "");
+        impl.init(new Foo(), "", "", null);
 
         final Factory factory = QBit.factory();
 
@@ -137,7 +133,7 @@ public class BoonServiceMethodCallHandlerTest {
     public void someMethod2() {
 
         BoonServiceMethodCallHandler impl = new BoonServiceMethodCallHandler(true);
-        impl.init(new Foo(), null, null);
+        impl.init(new Foo(), null, null,null);
 
         final Factory factory = QBit.factory();
 
@@ -159,7 +155,7 @@ public class BoonServiceMethodCallHandlerTest {
     public void someMethod3() {
 
         BoonServiceMethodCallHandler impl = new BoonServiceMethodCallHandler(true);
-        impl.init(new Foo(), "/root", "/service");
+        impl.init(new Foo(), "/root", "/service", null);
 
 
         final String address = impl.address();
@@ -186,7 +182,7 @@ public class BoonServiceMethodCallHandlerTest {
     public void someMethod4() {
 
         BoonServiceMethodCallHandler impl = new BoonServiceMethodCallHandler(true);
-        impl.init(new Foo(), "/root", "/service");
+        impl.init(new Foo(), "/root", "/service", null);
 
 
         final String address = impl.address();
@@ -216,7 +212,7 @@ public class BoonServiceMethodCallHandlerTest {
     public void someMethod4NotDynamic() {
 
         BoonServiceMethodCallHandler impl = new BoonServiceMethodCallHandler(false);
-        impl.init(new Foo(), "/root", "/service");
+        impl.init(new Foo(), "/root", "/service", null);
 
 
         final String address = impl.address();

@@ -20,16 +20,13 @@ package io.advantageous.qbit.events.impl;
 
 import io.advantageous.qbit.events.EventListener;
 import io.advantageous.qbit.message.Event;
-import org.boon.Boon;
+import io.advantageous.boon.Boon;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Created by rhightower on 2/3/15.
- */
 public class Channel<T> {
 
 

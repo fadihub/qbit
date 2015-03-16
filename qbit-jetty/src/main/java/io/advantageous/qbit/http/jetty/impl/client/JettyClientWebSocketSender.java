@@ -18,12 +18,12 @@
 
 package io.advantageous.qbit.http.jetty.impl.client;
 
+import io.advantageous.boon.Str;
+import io.advantageous.boon.primitive.Byt;
 import io.advantageous.qbit.GlobalConstants;
 import io.advantageous.qbit.http.websocket.WebSocket;
 import io.advantageous.qbit.http.websocket.WebSocketSender;
 import io.advantageous.qbit.network.NetSocket;
-import org.boon.Str;
-import org.boon.primitive.Byt;
 import org.eclipse.jetty.websocket.api.Session;
 import org.eclipse.jetty.websocket.api.WebSocketListener;
 import org.eclipse.jetty.websocket.client.ClientUpgradeRequest;
@@ -36,7 +36,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.ByteBuffer;
 
-import static org.boon.Boon.puts;
+import static io.advantageous.boon.Boon.puts;
 
 
 /**
@@ -88,9 +88,17 @@ public class JettyClientWebSocketSender implements WebSocketSender {
         openWebSocket((WebSocket) netSocket);
     }
 
+    public synchronized Session getSession() {
+        return session;
+    }
+
+    public synchronized  void setSession(Session session) {
+        this.session = session;
+    }
+
     @Override
     public void openWebSocket(final WebSocket webSocket) {
-        if (session != null) throw new IllegalStateException("WebSocket open already");
+        if (getSession() != null) throw new IllegalStateException("WebSocket open already");
         ClientUpgradeRequest request = new ClientUpgradeRequest();
         try {
             webSocketClient.connect(new WebSocketListener() {
@@ -111,13 +119,14 @@ public class JettyClientWebSocketSender implements WebSocketSender {
                     }
 
                     webSocket.onClose();
+                    setSession(null);
 
                 }
 
                 @Override
                 public void onWebSocketConnect(Session session) {
 
-                    JettyClientWebSocketSender.this.session = session;
+                    setSession(session);
                     webSocket.onOpen();
 
                 }

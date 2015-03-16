@@ -20,10 +20,11 @@ package io.advantageous.qbit.http.jetty.impl.client;
 
 import io.advantageous.qbit.GlobalConstants;
 import io.advantageous.qbit.http.client.HttpClient;
+import io.advantageous.qbit.http.jetty.impl.server.JettyHeaderAdapter;
 import io.advantageous.qbit.http.request.HttpRequest;
 import io.advantageous.qbit.http.websocket.WebSocket;
 import io.advantageous.qbit.util.MultiMap;
-import org.boon.Str;
+import io.advantageous.boon.Str;
 import org.eclipse.jetty.client.api.Request;
 import org.eclipse.jetty.client.api.Result;
 import org.eclipse.jetty.client.util.BufferingResponseListener;
@@ -41,8 +42,8 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.function.Consumer;
 
+import static io.advantageous.boon.Boon.puts;
 import static io.advantageous.qbit.http.websocket.WebSocketBuilder.webSocketBuilder;
-import static org.boon.Boon.puts;
 
 /**
  * @author rhightower on 2/14/15.
@@ -60,6 +61,7 @@ public class JettyQBitHttpClient implements HttpClient {
     public JettyQBitHttpClient(final String host, final int port) {
         this.host = host;
         this.port = port;
+
     }
 
     @Override
@@ -97,7 +99,6 @@ public class JettyQBitHttpClient implements HttpClient {
 
             for (String value : values) {
                 jettyRequest.param(paramName, value);
-                if (debug) puts("Adding Params", paramName, value);
             }
         }
     }
@@ -146,11 +147,12 @@ public class JettyQBitHttpClient implements HttpClient {
 
                         request.getReceiver().response(result.getResponse().getStatus(),
                                 result.getResponse().getHeaders().get(HttpHeader.CONTENT_TYPE),
-                                responseString);
+                                responseString,
+                                new JettyHeaderAdapter(result.getResponse().getHeaders()));
                     } else {
                         request.getReceiver().response(result.getResponse().getStatus(),
                                 result.getResponse().getHeaders().get(HttpHeader.CONTENT_TYPE),
-                                responseContent);
+                                responseContent, new JettyHeaderAdapter(result.getResponse().getHeaders()));
 
                     }
                 }
@@ -170,6 +172,16 @@ public class JettyQBitHttpClient implements HttpClient {
     }
 
     @Override
+    public int getPort() {
+        return this.port;
+    }
+
+    @Override
+    public String getHost() {
+        return this.host;
+    }
+
+    @Override
     public HttpClient start() {
         try {
             httpClient.start();
@@ -180,6 +192,11 @@ public class JettyQBitHttpClient implements HttpClient {
 
 
         try {
+
+            webSocketClient.setMaxTextMessageBufferSize(20_000_000);
+            webSocketClient.setMaxBinaryMessageBufferSize(20_000_000);
+            webSocketClient.getPolicy().setMaxTextMessageSize(20_000_000);
+            webSocketClient.getPolicy().setMaxBinaryMessageSize(20_000_000);
             webSocketClient.start();
         } catch (Exception e) {
             throw new IllegalStateException("Unable to start websocket Jetty support", e);

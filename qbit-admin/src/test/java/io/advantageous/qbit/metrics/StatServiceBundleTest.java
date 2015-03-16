@@ -18,28 +18,28 @@
 
 package io.advantageous.qbit.metrics;
 
+import io.advantageous.boon.core.Sys;
+import io.advantageous.boon.core.reflection.ClassMeta;
+import io.advantageous.boon.core.reflection.MethodAccess;
+import io.advantageous.boon.primitive.Arry;
+import io.advantageous.boon.primitive.Int;
 import io.advantageous.qbit.metrics.support.DebugRecorder;
 import io.advantageous.qbit.metrics.support.DebugReplicator;
 import io.advantageous.qbit.metrics.support.StatServiceBuilder;
 import io.advantageous.qbit.queue.QueueBuilder;
-import io.advantageous.qbit.service.Service;
+import io.advantageous.qbit.service.ServiceQueue;
 import io.advantageous.qbit.service.ServiceBundle;
 import io.advantageous.qbit.service.ServiceBundleBuilder;
 import io.advantageous.qbit.test.TimedTesting;
 import io.advantageous.qbit.util.Timer;
-import org.boon.core.Sys;
-import org.boon.core.reflection.ClassMeta;
-import org.boon.core.reflection.MethodAccess;
-import org.boon.primitive.Arry;
-import org.boon.primitive.Int;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
+import static io.advantageous.boon.Boon.puts;
+import static io.advantageous.boon.Exceptions.die;
 import static io.advantageous.qbit.queue.QueueBuilder.queueBuilder;
 import static io.advantageous.qbit.service.ServiceBuilder.serviceBuilder;
-import static org.boon.Boon.puts;
-import static org.boon.Exceptions.die;
 
 /**
  * Created by rhightower on 1/28/15.
@@ -54,7 +54,7 @@ public class StatServiceBundleTest extends TimedTesting {
     DebugRecorder recorder;
     DebugReplicator replicator;
     ServiceBundle serviceBundle;
-    Service service;
+    ServiceQueue serviceQueue;
 
     @Before
     public void setUp() throws Exception {
@@ -64,22 +64,23 @@ public class StatServiceBundleTest extends TimedTesting {
         statService = new StatServiceBuilder().setRecorder(recorder).setReplicator(replicator).build();
         QueueBuilder queueBuilder = queueBuilder()
                 .setPollWait(40).setBatchSize(100_000).setLinkTransferQueue().setCheckEvery(1000);
-        service = serviceBuilder()
+        serviceQueue = serviceBuilder()
                 .setRootAddress("/root")
                 .setServiceAddress("/serviceAddress")
                 .setServiceObject(statService)
-                .setQueueBuilder(queueBuilder)
+                .setRequestQueueBuilder(queueBuilder)
                 .setHandleCallbacks(true)
                 .setInvokeDynamic(false)
                 .build();
         serviceBundle = new ServiceBundleBuilder()
                 .setEachServiceInItsOwnThread(true)
-                .setQueueBuilder(queueBuilder)
+                .setRequestQueueBuilder(queueBuilder)
+                .setResponseQueueBuilder(queueBuilder)
                 .setInvokeDynamic(false)
                 .buildAndStart();
         serviceBundle.addService(statService);
         serviceBundle.startReturnHandlerProcessor();
-        service.start();
+        serviceQueue.start();
         statServiceClient = serviceBundle.createLocalProxy(StatServiceClientInterface.class, "statService");
     }
 
@@ -97,10 +98,10 @@ public class StatServiceBundleTest extends TimedTesting {
         serviceBundle.flush();
 
 
-        triggerLatchWhen(o -> replicator.count == 1);
+        triggerLatchWhen(o -> replicator.count.get() == 1);
         waitForLatch(20);
 
-        ok = replicator.count == 1 || die();
+        ok = replicator.count.get() == 1 || die();
 
     }
 
@@ -115,9 +116,9 @@ public class StatServiceBundleTest extends TimedTesting {
         serviceBundle.flush();
 
 
-        triggerLatchWhen(o -> replicator.count == 3);
+        triggerLatchWhen(o -> replicator.count.get() == 3);
         waitForLatch(20);
-        ok = replicator.count == 3 || die(replicator.count);
+        ok = replicator.count.get() == 3 || die(replicator.count);
 
 
     }
@@ -134,11 +135,17 @@ public class StatServiceBundleTest extends TimedTesting {
         serviceBundle.flush();
 
 
-        triggerLatchWhen(o -> replicator.count == 1000);
+        triggerLatchWhen(o -> replicator.count.get() == 1000);
+
+        for (int index = 0; index < 4; index++) {
+            puts(replicator.count.get());
+            Sys.sleep(100);
+        }
 
         waitForLatch(20);
+        Sys.sleep(1000);
 
-        ok = replicator.count == 1000 || die(replicator.count);
+        ok = replicator.count.get() == 1000 || die(replicator.count);
 
     }
 
@@ -156,16 +163,17 @@ public class StatServiceBundleTest extends TimedTesting {
         serviceBundle.flush();
 
 
-        triggerLatchWhen(o -> replicator.count == 4000);
+        triggerLatchWhen(o -> replicator.count.get() == 4000);
         waitForLatch(20);
 
+        Sys.sleep(1000);
 
-        ok = replicator.count == 4000 || die(replicator.count);
+        ok = replicator.count.get() == 4000 || die(replicator.count);
 
     }
 
 
-    @Test
+    //@Test
     public void testRecord100Thousand() throws Exception {
         for (int index = 0; index < 100_000; index++) {
             statServiceClient.recordCount("mystat", 1);
@@ -178,10 +186,10 @@ public class StatServiceBundleTest extends TimedTesting {
         serviceBundle.flush();
 
 
-        triggerLatchWhen(o -> replicator.count == 100_000);
+        triggerLatchWhen(o -> replicator.count.get() == 100_000);
         waitForLatch(60);
 
-        ok = replicator.count == 100_000 || die(replicator.count);
+        ok = replicator.count.get() == 100_000 || die(replicator.count);
 
     }
 
@@ -204,7 +212,7 @@ public class StatServiceBundleTest extends TimedTesting {
 
         for (int index = 0; index < 20; index++) {
             Sys.sleep(1000);
-            if (replicator.count == 16_000_000) {
+            if (replicator.count.get() == 16_000_000) {
                 break;
             }
             puts(replicator.count);
@@ -212,7 +220,7 @@ public class StatServiceBundleTest extends TimedTesting {
         }
 
 
-        ok = replicator.count == 16_000_000 || die(replicator.count);
+        ok = replicator.count.get() == 16_000_000 || die(replicator.count);
 
 
         final long end = System.currentTimeMillis();
@@ -223,7 +231,7 @@ public class StatServiceBundleTest extends TimedTesting {
 
     }
 
-    @Test
+    //@Test
     public void testRecordServicePerf() throws Exception {
 
         Sys.sleep(200);
@@ -267,7 +275,7 @@ public class StatServiceBundleTest extends TimedTesting {
 
     private void runPerfTestService(final int count) {
 
-        statServiceClient = service.createProxy(StatServiceClientInterface.class);
+        statServiceClient = serviceQueue.createProxy(StatServiceClientInterface.class);
         final long start = System.currentTimeMillis();
 
         for (int index = 0; index < count; index++) {
@@ -284,7 +292,7 @@ public class StatServiceBundleTest extends TimedTesting {
 
         for (int index = 0; index < 100; index++) {
             Sys.sleep(100);
-            if (replicator.count == count) {
+            if (replicator.count.get() == count) {
                 break;
             }
             puts(replicator.count);
@@ -292,7 +300,7 @@ public class StatServiceBundleTest extends TimedTesting {
         }
 
 
-        ok = replicator.count == count || die(replicator.count);
+        ok = replicator.count.get() == count || die(replicator.count);
 
 
         final long end = System.currentTimeMillis();
@@ -318,7 +326,7 @@ public class StatServiceBundleTest extends TimedTesting {
             puts(replicator.count);
 
         }
-        ok = replicator.count == 16_000_000 || die(replicator.count);
+        ok = replicator.count.get() == 16_000_000 || die(replicator.count);
 
 
         final long end = System.currentTimeMillis();
@@ -349,7 +357,7 @@ public class StatServiceBundleTest extends TimedTesting {
             puts(replicator.count);
 
         }
-        ok = replicator.count == 16_000_000 || die(replicator.count);
+        ok = replicator.count.get()  == 16_000_000 || die(replicator.count);
 
 
         final long end = System.currentTimeMillis();

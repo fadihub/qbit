@@ -21,12 +21,13 @@ package io.advantageous.qbit.example.servers;
 import io.advantageous.qbit.client.Client;
 import io.advantageous.qbit.client.ClientBuilder;
 import io.advantageous.qbit.service.Callback;
-import org.boon.core.Sys;
+import io.advantageous.boon.core.Sys;
 
 import java.util.ArrayList;
 import java.util.List;
 
-import static org.boon.Boon.puts;
+import static io.advantageous.boon.Boon.puts;
+
 
 /**
  * Created by rhightower on 2/2/15.
@@ -34,6 +35,39 @@ import static org.boon.Boon.puts;
 public class SimpleWebSocketClient {
 
     static volatile int count = 0;
+
+
+    public static void mainEx(String... args) {
+
+        String host = args.length > 0 ? args[0] : "localhost";
+        int port = args.length > 1 ? Integer.parseInt(args[1]) : 6060;
+
+
+        final Client client = new ClientBuilder().setPoolSize(1).setPort(port).setHost(host).setRequestBatchSize(10_000)
+                .build();
+
+        client.start();
+
+
+        final SimpleServiceProxy myService = client.createProxy(SimpleServiceProxy.class, "myService");
+
+        myService.puke(new Callback<List<String>>() {
+                           @Override
+                           public void accept(List<String> strings) {
+
+                           }
+
+                           @Override
+                           public void onError(Throwable error) {
+                               error.printStackTrace();
+
+                           }
+                       }
+
+        );
+
+
+    }
 
     public static void main(String... args) {
 
@@ -59,13 +93,13 @@ public class SimpleWebSocketClient {
                 @Override
                 public void run() {
 
-                    for (int index = 0; index < 11_000_000; index++) {
+                    for (int index = 0; index < 25_000_000; index++) {
                         myService.ping(strings -> {
                             count++;
                         });
 
                         if (index % 15_000 == 0) {
-                            Sys.sleep(10);
+                            Sys.sleep(5);
                         }
                     }
                 }
@@ -77,11 +111,11 @@ public class SimpleWebSocketClient {
 
 
         double start = System.currentTimeMillis();
-        while (count < 10_000_000) {
+        while (count < 24_000_000) {
             for (int index = 0; index < 10; index++) {
                 Sys.sleep(100);
 
-                if (count > 10_000_000) {
+                if (count > 24_000_000) {
                     break;
                 }
             }
@@ -96,6 +130,9 @@ public class SimpleWebSocketClient {
     interface SimpleServiceProxy {
 
         void ping(Callback<List<String>> callback);
+
+
+        void puke(Callback<List<String>> callback);
 
     }
 }

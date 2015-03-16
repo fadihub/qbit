@@ -18,23 +18,21 @@
 
 package io.advantageous.qbit.network.impl;
 
+import io.advantageous.boon.core.Sys;
 import io.advantageous.qbit.network.NetSocket;
 import io.advantageous.qbit.network.NetworkSender;
-import org.boon.core.Sys;
 import org.slf4j.LoggerFactory;
 
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
-/**
- * Created by rhightower on 2/14/15.
- */
 public class NetSocketBase implements NetSocket {
 
     private final String remoteAddress;
     private final String uri;
     private final boolean binary;
     private NetworkSender networkSender;
-    private volatile boolean open;
+    private final AtomicBoolean open = new AtomicBoolean();
     private Consumer<String> textMessageConsumer = text -> {
     };
     private Consumer<byte[]> binaryMessageConsumer = bytes -> {
@@ -53,7 +51,7 @@ public class NetSocketBase implements NetSocket {
                          NetworkSender networkSender) {
         this.remoteAddress = remoteAddress;
         this.uri = uri;
-        this.open = open;
+        this.open.set(open);
         this.binary = binary;
         this.networkSender = networkSender;
     }
@@ -85,19 +83,19 @@ public class NetSocketBase implements NetSocket {
 
     @Override
     public void onClose() {
-        open = false;
+        open.set(false);
         this.closeConsumer.accept(null);
     }
 
     @Override
     public void onOpen() {
-        open = true;
+        open.set(true);
         this.openConsumer.accept(null);
     }
 
     @Override
     public void onError(Exception exception) {
-        open = false;
+        open.set(false);
         errorConsumer.accept(exception);
     }
 
@@ -121,12 +119,12 @@ public class NetSocketBase implements NetSocket {
 
     @Override
     public boolean isClosed() {
-        return !open;
+        return !open.get();
     }
 
     @Override
     public boolean isOpen() {
-        return open;
+        return open.get();
     }
 
     @Override
@@ -180,7 +178,7 @@ public class NetSocketBase implements NetSocket {
         open();
         /* Try to open for three seconds. */
         int count = 300;
-        while (!open) {
+        while (!open.get()) {
             Sys.sleep(10);
             count--;
             if (count <= 0) {
